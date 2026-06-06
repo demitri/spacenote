@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NoteStore()
     private(set) var controllers: [NoteWindowController] = []
     private var statusItemController: StatusItemController?
+    private(set) lazy var spaceManager = SpaceManager { [unowned self] in self.controllers }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
@@ -11,13 +12,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let loaded = store.loadAll()
         if loaded.isEmpty {
-            newNote(nil)   // first launch: seed one note
+            newNote(nil)   // first launch: seed one note (current space, focused)
         } else {
             for (note, text) in loaded {
-                addController(note: note, text: text).showWindow(nil)
+                addController(note: note, text: text)
             }
+            // No NSApp.activate, no makeKey: placement must happen on non-key
+            // windows or it drags the user's desktop along (Phase 0 fact).
+            spaceManager.performLaunchPlacement()
         }
-        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -42,13 +45,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func newNote(_ sender: Any?) {
         let note = store.create(frame: nextNoteFrame(), color: .yellow)
-        addController(note: note, text: nil).focus()
+        let controller = addController(note: note, text: nil)
+        controller.focus()
+        spaceManager.stampNewNote(controller)
     }
 
     @objc func focusNote(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? UUID,
               let controller = controllers.first(where: { $0.noteID == id }) else { return }
         controller.focus()
+    }
+
+    @objc func bringNote(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let controller = controllers.first(where: { $0.noteID == id }) else { return }
+        spaceManager.bringToCurrentSpace(controller)
     }
 
     @objc private func closeKeyNote(_ sender: Any?) {

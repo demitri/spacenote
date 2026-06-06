@@ -123,6 +123,18 @@ final class NoteWindowController: NSWindowController {
         pushFrame()
     }
 
+    // MARK: - Space stamp (written only by SpaceManager, from CGS readback)
+
+    func updateStamp(_ info: SpaceInfo) {
+        guard note.spaceUUID != info.uuid
+                || note.displayIdentifier != info.displayIdentifier
+                || note.desktopOrdinal != info.ordinal else { return }
+        note.spaceUUID = info.uuid
+        note.displayIdentifier = info.displayIdentifier
+        note.desktopOrdinal = info.ordinal
+        store.update(note)
+    }
+
     // MARK: - Focus
 
     func focus() {
