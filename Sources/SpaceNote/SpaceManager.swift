@@ -21,6 +21,12 @@ final class SpaceManager {
             forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.restampAll() }
 
+        // Display topology changes invalidate display identifiers, current
+        // spaces, and ordinal resolution.
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.restampAll() }
+
         // Catches drags between desktops (incl. inside Mission Control, which
         // can end with no space-change notification at all — PLAN.md §1).
         NotificationCenter.default.addObserver(
@@ -72,22 +78,48 @@ final class SpaceManager {
         }
 
         // Windows have no space until the WindowServer commits (Phase 0 fact):
-        // move on the next runloop turn, verify a beat later.
+        // move on the next runloop turn, verify with retry.
         DispatchQueue.main.async { [self] in
+            guard !pendingMoves.isEmpty else {
+                placementInFlight = false
+                restampAll()   // stamps unstamped and re-homed notes
+                return
+            }
             for (controller, target) in pendingMoves {
                 tracker.moveWindow(controller.window?.windowNumber ?? -1, to: target)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
-                for (controller, target) in pendingMoves {
-                    let actual = tracker.spaceIDs(forWindow: controller.window?.windowNumber ?? -1)
-                    if actual != [target.id64] {
-                        NSLog("SpaceNote: placement of note \(controller.note.id) FAILED (wanted \(target.id64), got \(actual))")
+            var remaining = pendingMoves.count
+            for (controller, target) in pendingMoves {
+                verifyMove(of: controller, to: target, attemptsLeft: 2) { [self] success in
+                    if !success {
+                        NSLog("SpaceNote: placement of note \(controller.note.id) FAILED (wanted \(target.id64))")
                         tracker.reportWriteFailure()
                     }
                     controller.window?.alphaValue = 1   // unconditionally — never leave a window invisible
+                    remaining -= 1
+                    if remaining == 0 {
+                        placementInFlight = false
+                        restampAll()   // also stamps unstamped and re-homed notes
+                    }
                 }
-                placementInFlight = false
-                restampAll()   // also stamps unstamped and re-homed notes
+            }
+        }
+    }
+
+    /// Readback verification with one retry — a slow WindowServer commit must
+    /// not masquerade as a permanently broken write tier.
+    private func verifyMove(of controller: NoteWindowController, to target: SpaceInfo,
+                            attemptsLeft: Int, completion: @escaping (Bool) -> Void) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self else { return }
+            let actual = self.tracker.spaceIDs(forWindow: controller.window?.windowNumber ?? -1)
+            if actual == [target.id64] {
+                completion(true)
+            } else if attemptsLeft > 1 {
+                self.verifyMove(of: controller, to: target,
+                                attemptsLeft: attemptsLeft - 1, completion: completion)
+            } else {
+                completion(false)
             }
         }
     }
@@ -132,7 +164,15 @@ final class SpaceManager {
 
     // MARK: - Status-menu support
 
-    /// Is this note's window on a currently visible space?
+    /// Refresh the snapshot before menu classification (it may be stale if no
+    /// space/screen event fired since the last refresh).
+    func refreshSnapshot() {
+        tracker.refresh()
+    }
+
+    /// Is this note's window on a currently visible space? Empty readback is
+    /// treated as local: it only occurs pre-commit, i.e. for windows just
+    /// created on the current space.
     func isOnVisibleSpace(_ controller: NoteWindowController) -> Bool {
         guard tracker.readsAvailable else { return true }   // degraded: everything is local
         guard let windowNumber = controller.window?.windowNumber, windowNumber > 0 else { return true }
@@ -151,10 +191,17 @@ final class SpaceManager {
 
     /// Explicit, user-initiated relocation to the current space (the status
     /// menu's "bring here" — never an implicit side effect of focusing).
+    ///
+    /// Order matters: move first, focus only after readback settles. Focusing
+    /// a foreign-space window makes it key, and macOS follows the key window's
+    /// space — focus-then-move can teleport the user to the note's OLD desktop
+    /// while the note departs it (the Phase 0 sharp edge, PLAN.md §7).
     func bringToCurrentSpace(_ controller: NoteWindowController) {
-        defer { controller.focus() }
         guard tracker.readsAvailable, tracker.writesAvailable,
-              let windowNumber = controller.window?.windowNumber, windowNumber > 0 else { return }
+              let windowNumber = controller.window?.windowNumber, windowNumber > 0 else {
+            controller.focus()   // degraded mode: the note is on the current space anyway
+            return
+        }
         tracker.refresh()
         // The note keeps its display: prefer the current space whose display
         // matches; otherwise the first current space.
@@ -163,16 +210,27 @@ final class SpaceManager {
         }
         guard let target = currentSpaces.first(where: {
             $0.displayIdentifier == controller.note.displayIdentifier
-        }) ?? currentSpaces.first else { return }
+        }) ?? currentSpaces.first else {
+            NSLog("SpaceNote: bring-here found no current user space — focusing in place")
+            controller.focus()
+            return
+        }
+        if tracker.spaceIDs(forWindow: windowNumber) == [target.id64] {
+            controller.focus()   // already here
+            return
+        }
+        placementInFlight = true   // gate restamps against the move's notification echoes
         tracker.moveWindow(windowNumber, to: target)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+        verifyMove(of: controller, to: target, attemptsLeft: 2) { [weak self] success in
             guard let self else { return }
-            let actual = self.tracker.spaceIDs(forWindow: windowNumber)
-            if actual != [target.id64] {
-                NSLog("SpaceNote: bring-here of note \(controller.note.id) FAILED (got \(actual))")
+            self.placementInFlight = false
+            if success {
+                self.restamp(controller)
+            } else {
+                NSLog("SpaceNote: bring-here of note \(controller.note.id) FAILED")
                 self.tracker.reportWriteFailure()
             }
-            self.restamp(controller)
+            controller.focus()
         }
     }
 }

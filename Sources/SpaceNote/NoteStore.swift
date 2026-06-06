@@ -13,6 +13,7 @@ final class NoteStore {
     private var pendingRTF: [UUID: Data] = [:]   // text edits awaiting flush
     private var manifestDirty = false
     private var saveTimer: Timer?
+    private var retryTimer: Timer?
 
     init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory,
@@ -43,28 +44,39 @@ final class NoteStore {
             return []
         }
         notes = manifest.notes
-        return notes.map { note in
+        var result: [(note: Note, text: NSAttributedString?)] = []
+        for index in notes.indices {
+            let note = notes[index]
             let url = directory.appendingPathComponent(note.rtfFilename)
             guard FileManager.default.fileExists(atPath: url.path) else {
                 NSLog("SpaceNote: \(note.rtfFilename) missing — opening note empty")
-                return (note, nil)
+                result.append((note, nil))
+                continue
             }
             do {
                 let data = try Data(contentsOf: url)
                 if let text = NSAttributedString(rtf: data, documentAttributes: nil) {
-                    return (note, text)
+                    result.append((note, text))
+                    continue
                 }
                 // Unparseable: move aside so the first edit can't overwrite it.
                 let stamp = ISO8601DateFormatter().string(from: Date())
                 let backup = directory.appendingPathComponent("\(note.rtfFilename).unreadable-\(stamp)")
                 try FileManager.default.moveItem(at: url, to: backup)
                 NSLog("SpaceNote: \(note.rtfFilename) is not valid RTF — preserved as \(backup.lastPathComponent), opening empty")
-                return (note, nil)
+                result.append((note, nil))
             } catch {
-                NSLog("SpaceNote: cannot read/quarantine \(note.rtfFilename): \(error) — opening empty, file left in place")
-                return (note, nil)
+                // Can't read (or can't quarantine) the original: NEVER leave it
+                // where the first edit would overwrite it — divert all future
+                // saves for this note to a fresh file.
+                let stamp = ISO8601DateFormatter().string(from: Date())
+                notes[index].rtfFilename = "\(note.id.uuidString)-recovered-\(stamp).rtf"
+                manifestDirty = true
+                NSLog("SpaceNote: cannot read/quarantine \(note.rtfFilename): \(error) — original left untouched; this note now saves to \(notes[index].rtfFilename)")
+                result.append((notes[index], nil))
             }
         }
+        return result
     }
 
     private func quarantineCorruptManifest(_ error: Error) {
@@ -142,6 +154,8 @@ final class NoteStore {
     func saveNow() {
         saveTimer?.invalidate()
         saveTimer = nil
+        retryTimer?.invalidate()
+        retryTimer = nil
 
         for (id, data) in pendingRTF {
             guard let note = notes.first(where: { $0.id == id }) else { continue }
@@ -155,15 +169,24 @@ final class NoteStore {
             pendingRTF[id] = nil
         }
 
-        guard manifestDirty else { return }
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            let data = try encoder.encode(Manifest(version: Manifest.currentVersion, notes: notes))
-            try data.write(to: manifestURL, options: .atomic)
-            manifestDirty = false
-        } catch {
-            NSLog("SpaceNote: FAILED to save manifest: \(error) — will retry on next save")
+        if manifestDirty {
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                let data = try encoder.encode(Manifest(version: Manifest.currentVersion, notes: notes))
+                try data.write(to: manifestURL, options: .atomic)
+                manifestDirty = false
+            } catch {
+                NSLog("SpaceNote: FAILED to save manifest: \(error)")
+            }
+        }
+
+        // Anything still unsaved retries on its own — never sit indefinitely
+        // on in-memory-only edits waiting for the user's next keystroke.
+        if manifestDirty || !pendingRTF.isEmpty {
+            retryTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
+                self?.saveNow()
+            }
         }
     }
 }

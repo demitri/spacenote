@@ -29,6 +29,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // section — we can't switch desktops via public API, and focusing a
         // foreign note must never silently relocate it (PLAN.md §4).
         let manager = appDelegate.spaceManager
+        manager.refreshSnapshot()
         let (local, foreign) = appDelegate.controllers.reduce(into: ([NoteWindowController](), [NoteWindowController]())) {
             if manager.isOnVisibleSpace($1) { $0.0.append($1) } else { $0.1.append($1) }
         }
