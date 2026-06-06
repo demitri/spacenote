@@ -264,7 +264,34 @@ SpaceNoteApp (NSApplicationDelegate, LSUIElement=true)
 | 3 | SpaceTracker + placement (A′ real placement, lazy materialization, or Resume wiring — per Phase 0 verdicts) | 6–8 notes across 4 spaces + reboot → every note on its own space; Mission-Control drag of a note to another space sticks |
 | 4 | Polish: login item, Edit menu, fonts panel, screen-arrangement clamping, dark mode pass | Daily-drivable |
 
-## 7. Risks & open questions
+## 7. Phase 0 results (2026-06-06, macOS 26.5.1 / 25F80)
+
+Spike: `swift run SpikeSpaces [--dump | --automove]`; log: `spike-spaces.log`.
+
+- **(a) CGS reads: CONFIRMED.** All seven symbols resolve via dlsym. Dict shape as
+  planned: per-display `"Display Identifier"` / `"Current Space"` / `"Spaces"`, spaces
+  carry `id64`, `uuid`, `type`, `ManagedSpaceID` (== id64 in all observations). Primary
+  desktop's `uuid` is the empty string, as predicted — ordinal tuple required.
+- **(c) Strategy A′: CONFIRMED WORKING.** Both `CGSMoveWindowsToManagedSpace` and
+  `CGSAddWindowsToSpaces`+`CGSRemoveWindowsFromSpaces` move our own window between
+  user spaces unprivileged, verified by `CGSCopySpacesForWindows` readback.
+  **A′ is the placement strategy.** Lazy materialization (A) remains the coded
+  fallback path behind the same `SpacePlacer` interface (readback-verified per move;
+  if a write ever no-ops, log loudly and fall back).
+- **(d) Strategy B (Resume): MOOT** given (c). The restoration spike will not be built.
+- **(b) uuid stability across reboot: PENDING** — baseline dump captured in
+  `spike-spaces.log`; re-run `--dump` after next reboot and compare.
+- **New facts for the implementation:**
+  - A window's space readback is **empty immediately after `orderFront`** — it gets a
+    space only after the runloop/WindowServer commits. Always re-query a turn later;
+    treat empty readback as "not yet placed", not an error.
+  - `activeSpaceDidChangeNotification` fired during A′ moves of the app's own key
+    window — moving the key window of the active app can drag the user's desktop along.
+    The app must perform launch-time placement while its windows are not key (place
+    *before* `makeKey`, or explicitly avoid activating), and must expect/ignore the
+    resulting notification echo.
+
+## 8. Risks & open questions
 
 1. **CGS dict shape on Tahoe** — key names (`uuid`, `id64`, `type`, `Current Space`)
    verified only up to recent releases; Phase 0 exists to pin this down. Parser must
