@@ -28,8 +28,11 @@ final class NoteWindowController: NSWindowController {
         self.note = note
         self.store = store
         self.expandedHeight = note.frame.height
-        root = NoteRootView(frame: NSRect(origin: .zero, size: note.frame.size))
-        let window = StickyWindow(contentRect: note.frame)
+        // Presentation-only clamp: the persisted frame is kept verbatim until
+        // the user actually moves/resizes the note.
+        let displayFrame = NoteWindowController.clampedToScreens(note.frame)
+        root = NoteRootView(frame: NSRect(origin: .zero, size: displayFrame.size))
+        let window = StickyWindow(contentRect: displayFrame)
         super.init(window: window)
 
         window.delegate = self
@@ -57,6 +60,27 @@ final class NoteWindowController: NSWindowController {
         root.strip.color = note.color.strip
         root.bodyAlpha = note.isTranslucent ? 0.80 : 1.0
         window?.invalidateShadow()
+    }
+
+    // MARK: - Geometry
+
+    /// A note restored from an unplugged display must not be stranded
+    /// offscreen (PLAN.md §3). "On screen enough" = its strip is grabbable.
+    static func clampedToScreens(_ frame: NSRect) -> NSRect {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return frame }
+        let strip = NSRect(x: frame.minX, y: frame.maxY - StripView.height,
+                           width: frame.width, height: StripView.height)
+        if screens.contains(where: { $0.visibleFrame.intersection(strip).width >= 60 }) {
+            return frame
+        }
+        let target = (NSScreen.main ?? screens[0]).visibleFrame
+        var clamped = frame
+        clamped.size.width = min(clamped.width, target.width)
+        clamped.size.height = min(clamped.height, target.height)
+        clamped.origin.x = min(max(clamped.minX, target.minX), target.maxX - clamped.width)
+        clamped.origin.y = min(max(clamped.minY, target.minY), target.maxY - clamped.height)
+        return clamped
     }
 
     // MARK: - Geometry → model

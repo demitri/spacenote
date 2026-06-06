@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NoteStore()
@@ -62,6 +63,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         spaceManager.bringToCurrentSpace(controller)
     }
 
+    /// Login item toggle (PLAN.md §4). Only offered when running as a bundle;
+    /// errors and the requires-approval state surface in the UI, never
+    /// pretended away.
+    @objc func toggleLoginItem(_ sender: NSMenuItem) {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+                if service.status == .requiresApproval {
+                    SMAppService.openSystemSettingsLoginItems()
+                }
+            }
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "Could not update login item"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+
     @objc private func closeKeyNote(_ sender: Any?) {
         guard let key = NSApp.keyWindow,
               let controller = controllers.first(where: { $0.window === key }) else { return }
@@ -113,6 +136,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All",
                          action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(.separator())
+        let fonts = NSMenuItem(title: "Show Fonts…",
+                               action: #selector(NSFontManager.orderFrontFontPanel(_:)),
+                               keyEquivalent: "t")
+        fonts.target = NSFontManager.shared
+        editMenu.addItem(fonts)
         main.addItem(submenu(editMenu, title: "Edit"))
 
         return main

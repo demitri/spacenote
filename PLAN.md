@@ -256,6 +256,8 @@ SpaceNoteApp (NSApplicationDelegate, LSUIElement=true)
 
 ## 6. Phases
 
+All phases complete (2026-06-06) except the reboot-stability check in §7(b).
+
 | # | Deliverable | Exit criteria |
 |---|-------------|---------------|
 | 0 | `spike-spaces` mini-tool: prints per-display space dicts on every space change; logs uuid/id64; survives reboot comparison; tests **own-window** space-write APIs (A′) with readback verification. Also the Strategy-B restoration test app. | Confirmed on 26.5.1: (a) CGS read calls work + dict shape pinned; (b) uuid/ordinal stability across reboot; (c) A′ own-window write verdict; (d) Resume verdict per decision rule |
