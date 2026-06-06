@@ -1,27 +1,78 @@
 import AppKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var controllers: [NoteWindowController] = []
+    let store = NoteStore()
+    private(set) var controllers: [NoteWindowController] = []
+    private var statusItemController: StatusItemController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = buildMainMenu()
+        statusItemController = StatusItemController(appDelegate: self)
 
-        // Phase 1: one hardcoded note. Phase 2 replaces this with NoteStore.
-        let controller = NoteWindowController(
-            frame: NSRect(x: 400, y: 400, width: 280, height: 220),
-            color: .yellow)
-        controllers.append(controller)
-        controller.showWindow(nil)
+        let loaded = store.loadAll()
+        if loaded.isEmpty {
+            newNote(nil)   // first launch: seed one note
+        } else {
+            for (note, text) in loaded {
+                addController(note: note, text: text).showWindow(nil)
+            }
+        }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true   // Phase 1 only; the real app is a status-item app and keeps running
+        false   // status-item app: closing the last note keeps us running
     }
 
-    // MARK: - Menu
-    // The final app is LSUIElement; the main menu still provides the standard
-    // Edit key equivalents, which work regardless of menu-bar visibility.
+    func applicationWillTerminate(_ notification: Notification) {
+        store.saveNow()
+    }
+
+    // MARK: - Note management
+
+    @discardableResult
+    private func addController(note: Note, text: NSAttributedString?) -> NoteWindowController {
+        let controller = NoteWindowController(note: note, text: text, store: store)
+        controller.onDeleted = { [weak self] id in
+            self?.controllers.removeAll { $0.noteID == id }
+        }
+        controllers.append(controller)
+        return controller
+    }
+
+    @objc func newNote(_ sender: Any?) {
+        let note = store.create(frame: nextNoteFrame(), color: .yellow)
+        addController(note: note, text: nil).focus()
+    }
+
+    @objc func focusNote(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let controller = controllers.first(where: { $0.noteID == id }) else { return }
+        controller.focus()
+    }
+
+    @objc private func closeKeyNote(_ sender: Any?) {
+        guard let key = NSApp.keyWindow,
+              let controller = controllers.first(where: { $0.window === key }) else { return }
+        controller.requestClose()   // routes through delete-confirmation
+    }
+
+    /// Cascade new notes from the top-left of the screen with the key window
+    /// (or the main screen), like Stickies.
+    private func nextNoteFrame() -> CGRect {
+        let size = NSSize(width: 280, height: 220)
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        let visible = screen?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let offset = CGFloat(controllers.count % 10) * 24
+        return NSRect(x: visible.minX + 40 + offset,
+                      y: visible.maxY - 40 - size.height - offset,
+                      width: size.width, height: size.height)
+    }
+
+    // MARK: - Main menu
+    // The app will be LSUIElement once bundled (Phase 4); the main menu still
+    // provides the standard key equivalents, which work without a visible menu bar.
 
     private func buildMainMenu() -> NSMenu {
         let main = NSMenu()
@@ -32,14 +83,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main.addItem(submenu(appMenu, title: "SpaceNote"))
 
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(withTitle: "Close Note",
-                         action: #selector(closeKeyNote(_:)), keyEquivalent: "w")
+        let newItem = NSMenuItem(title: "New Note",
+                                 action: #selector(newNote(_:)), keyEquivalent: "n")
+        newItem.target = self
+        fileMenu.addItem(newItem)
+        let closeItem = NSMenuItem(title: "Close Note",
+                                   action: #selector(closeKeyNote(_:)), keyEquivalent: "w")
+        closeItem.target = self
+        fileMenu.addItem(closeItem)
         main.addItem(submenu(fileMenu, title: "File"))
 
         let editMenu = NSMenu(title: "Edit")
         editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
-        let redo = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
-        editMenu.addItem(redo)
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
         editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
@@ -55,10 +111,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
-    }
-
-    @objc private func closeKeyNote(_ sender: Any?) {
-        // Borderless windows lack .closable, so performClose(_:) would beep.
-        NSApp.keyWindow?.close()
     }
 }
