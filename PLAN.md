@@ -353,24 +353,40 @@ the user, 2026-06-07).
    `alignLeft:/alignCenter:/alignRight:` actions; current paragraph alignment
    highlighted.
 4. **Note color** (swatch glyph) → popover: the six classic swatches + "Custom…"
-   opening `NSColorPanel`. All styling actions target the text view's selection (or
-   typing attributes when the selection is empty — native behavior) and persist
-   through the existing RTF path for free.
+   opening `NSColorPanel`. This is the **note background fill** (`Note.color`, lives
+   in the manifest) — NOT text color, which is out of scope for Phase 5. Sharp edge:
+   `NSColorPanel` sends `changeColor(_:)` down the responder chain, which `NSTextView`
+   implements (it would recolor the *text*) — the panel's target/action must be wired
+   explicitly to the note controller, never left on the responder chain.
 5. **Opacity** (translucency glyph) → popover with a live slider, **25–100 %**.
 
-### Model changes (manifest v2)
+Controls 1–3 act on the **text**: they target the text view's selection (or typing
+attributes when the selection is empty — native behavior) and persist through the
+existing RTF path for free. Rule: every toolbar control refuses first-responder
+status (`refusesFirstResponder`, menus/popovers non-activating where applicable) so
+clicking a tool never collapses the selection or steals focus from the text view —
+otherwise actions silently degrade to typing-attribute changes.
 
-- `isTranslucent: Bool` → **`opacity: Double`**. Explicit migration on decode:
-  v1 `true → 0.8`, `false → 1.0`. Manifest `version` bumps to 2; a v2 manifest is
-  never written until a successful v1 read (the corrupt-manifest quarantine path is
-  unchanged).
+### Model changes
+
+- **Translucency**: keep `isTranslucent: Bool`; add `translucentOpacity: Double`
+  (decode default **0.8** when absent — backward compatible, no version bump).
+  Effective body alpha = `isTranslucent ? translucentOpacity : 1.0`. The slider edits
+  `translucentOpacity` live (dragging to 100 % clears `isTranslucent`; dragging below
+  sets it); the context-menu "Translucent" checkbox = `isTranslucent`, and toggling it
+  on restores the remembered `translucentOpacity`.
 - **Custom colors**: `Note.color` becomes `NoteFill` — `case preset(NoteColor)` /
   `case custom(rgb: UInt32)` — with custom `Codable` keeping the manifest field a
   plain string (`"yellow"` or `"#RRGGBB"`), so v1 manifests decode unchanged. A custom
   fill derives its strip/toolbar tint programmatically (darken ~10 %, nudge
   saturation — the same body→strip relationship the presets have).
-- Strip context menu: color items + "Show Toolbar"; "Translucent" becomes a checkbox
-  meaning `opacity < 1` (on → restore 1.0, off → last sub-1.0 value, default 0.8).
+- `Note.showsToolbar: Bool`, decode default `false`.
+- Manifest `version` stays 1: every new field has an explicit decode default and v1
+  manifests decode unchanged (the corrupt-manifest quarantine path is untouched).
+- **Unit tests** (extending the §5 manifest round-trip suite): `NoteFill` Codable
+  round-trip (preset + custom + v1 string decode), `showsToolbar`/`translucentOpacity`
+  decode defaults on a v1 fixture, and effective-alpha semantics of the
+  translucency toggle.
 
 ### Included nit fix
 
