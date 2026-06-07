@@ -370,7 +370,7 @@ otherwise actions silently degrade to typing-attribute changes.
 ### Model changes
 
 - **Translucency**: keep `isTranslucent: Bool`; add `translucentOpacity: Double`
-  (decode default **0.8** when absent — backward compatible, no version bump).
+  (decode default **0.8** when absent; field is backward-compatible on read).
   Effective body alpha = `isTranslucent ? translucentOpacity : 1.0`. The slider edits
   `translucentOpacity` live (dragging to 100 % clears `isTranslucent`; dragging below
   sets it); the context-menu "Translucent" checkbox = `isTranslucent`, and toggling it
