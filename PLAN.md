@@ -152,7 +152,7 @@ floating-by-default) are all things to counteract, not features):
   `NSApp.activate(ignoringOtherApps: true)` explicitly, and implement
   `acceptsFirstMouse(for:) -> true` on the strip and body so the first click on an
   inactive note both activates and acts — otherwise controls feel intermittently dead.
-- `contentMinSize ≈ 60×30` — resizable down to nearly nothing, like Stickies.
+- `contentMinSize = 60×40` — resizable down to nearly nothing, like Stickies.
 - `isOpaque = false`, `hasShadow = true`, `backgroundColor = .clear`; the content view
   draws the note.
 - `hidesOnDeactivate = false`; `collectionBehavior` default (notes must NOT join all
@@ -327,7 +327,8 @@ the user, 2026-06-07).
 
 - **`ToolbarView`**: a 20 pt band directly **below the strip**, filled with the strip
   tint so it reads as part of the paper, not chrome. Icons are SF Symbols at ~11 pt
-  tinted `black @ 45%` to match the hand-drawn × / chevron ink.
+  tinted with the contrast-aware chrome ink (see "Contrast-aware ink" below) so they
+  match the × / chevron on any fill.
 - **Geometry**: the toolbar lives *inside* the existing window frame — toggling it
   never resizes or moves the window; the text area shrinks/grows by the 20 pt band
   (`NoteRootView.layout()` offsets `scroll` by strip + toolbar when shown). Collapse
@@ -413,9 +414,13 @@ existing RTF path for free. Two routing rules, both directions:
 
 **Shared-panel ownership** (`NSColorPanel`, `NSFontPanel` are single system-wide
 panels): opening a session from any note retargets the panel to that note's
-controller and ends the previous note's session; a session also ends when the panel
-closes or the note's window closes (the controller must clear a target that points
-at itself, never leave a dangling one). The Edit-menu ⌘T font panel path (§4) keeps
+controller and ends the previous note's session. A session also ends when the panel
+closes, when the note's window closes, **or when another note becomes key**
+(observe `didBecomeKey`/`didResignKey`) — and as a belt-and-suspenders guard, a panel
+action is a no-op unless its controller is the current session owner *and* its window
+is key, so a stale target can never mutate the wrong note. The controller must clear
+a target that points at itself, never leave a dangling one. The Edit-menu ⌘T font
+panel path (§4) keeps
 its standard first-responder behavior; the toolbar's "Show Fonts…" makes its own
 text view first responder before ordering the panel front, so both paths agree on
 the target.
