@@ -6,6 +6,9 @@ let package = Package(
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(name: "SpikeSpaces", path: "Sources/SpikeSpaces"),
-        .executableTarget(name: "SpaceNote", path: "Sources/SpaceNote")
+        .executableTarget(name: "SpaceNote", path: "Sources/SpaceNote"),
+        .testTarget(name: "SpaceNoteTests",
+                    dependencies: ["SpaceNote"],
+                    path: "Tests/SpaceNoteTests")
     ]
 )

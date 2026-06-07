@@ -7,6 +7,8 @@ final class StripView: NSView {
 
     var color: NSColor = NoteColor.yellow.strip { didSet { needsDisplay = true } }
     var alpha: CGFloat = 1.0 { didSet { needsDisplay = true } }
+    /// Contrast-aware glyph ink (PLAN.md §9): black on light fills, light on dark.
+    var ink: NSColor = NSColor.black.withAlphaComponent(0.45) { didSet { needsDisplay = true } }
     var onClose: (() -> Void)?
     var onToggleCollapse: (() -> Void)?
 
@@ -41,7 +43,7 @@ final class StripView: NSView {
         bounds.fill()
         guard hovered else { return }
 
-        NSColor.black.withAlphaComponent(0.45).setStroke()
+        ink.setStroke()
         // Close: ×
         let x = NSBezierPath()
         x.lineWidth = 1.2

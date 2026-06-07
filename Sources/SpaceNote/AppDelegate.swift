@@ -59,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func newNote(_ sender: Any?) {
-        let note = store.create(frame: nextNoteFrame(), color: .yellow)
+        let note = store.create(frame: nextNoteFrame(), color: .preset(.yellow))
         let controller = addController(note: note, text: nil)
         controller.focus()
         spaceManager.stampNewNote(controller)
@@ -158,12 +158,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(fonts)
         main.addItem(submenu(editMenu, title: "Edit"))
 
+        // Format menu: the toolbar toggle lives here so its ⌘⇧T shortcut is
+        // discoverable (PLAN.md §9). Title swaps Show/Hide for the key note.
+        let formatMenu = NSMenu(title: "Format")
+        formatMenu.delegate = self
+        let toolbarItem = NSMenuItem(title: "Show Toolbar",
+                                     action: #selector(toggleKeyNoteToolbar(_:)), keyEquivalent: "t")
+        toolbarItem.keyEquivalentModifierMask = [.command, .shift]
+        toolbarItem.target = self
+        formatMenu.addItem(toolbarItem)
+        main.addItem(submenu(formatMenu, title: "Format"))
+
         return main
+    }
+
+    private func keyNoteController() -> NoteWindowController? {
+        guard let key = NSApp.keyWindow else { return nil }
+        return controllers.first { $0.window === key }
+    }
+
+    @objc private func toggleKeyNoteToolbar(_ sender: Any?) {
+        guard let controller = keyNoteController() else { return }
+        controller.setToolbarShown(!controller.note.showsToolbar)
     }
 
     private func submenu(_ menu: NSMenu, title: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         item.submenu = menu
         return item
+    }
+}
+
+extension AppDelegate: NSMenuDelegate {
+    /// Keeps the Format-menu toolbar item's title in sync with the key note, and
+    /// disables it when no note is key.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        guard let item = menu.items.first(where: { $0.action == #selector(toggleKeyNoteToolbar(_:)) }) else { return }
+        if let controller = keyNoteController() {
+            item.title = controller.note.showsToolbar ? "Hide Toolbar" : "Show Toolbar"
+            item.isEnabled = true
+        } else {
+            item.title = "Show Toolbar"
+            item.isEnabled = false
+        }
     }
 }

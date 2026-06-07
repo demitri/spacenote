@@ -102,7 +102,7 @@ final class NoteStore {
 
     // MARK: - CRUD
 
-    func create(frame: CGRect, color: NoteColor) -> Note {
+    func create(frame: CGRect, color: NoteFill) -> Note {
         let note = Note(color: color, frame: frame)
         notes.append(note)
         manifestDirty = true

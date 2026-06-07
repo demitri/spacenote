@@ -85,6 +85,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         item.target = appDelegate
         item.representedObject = controller.noteID
         item.image = NoteWindowController.swatch(controller.note.color.body)
+        // NoteFill.body unifies preset + custom — no preset-vs-custom branch.
         return item
     }
 }
