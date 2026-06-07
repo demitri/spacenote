@@ -416,10 +416,12 @@ existing RTF path for free. Two routing rules, both directions:
 panels): opening a session from any note retargets the panel to that note's
 controller and ends the previous note's session. A session also ends when the panel
 closes, when the note's window closes, **or when another note becomes key**
-(observe `didBecomeKey`/`didResignKey`) — and as a belt-and-suspenders guard, a panel
-action is a no-op unless its controller is the current session owner *and* its window
-is key, so a stale target can never mutate the wrong note. The controller must clear
-a target that points at itself, never leave a dangling one. The Edit-menu ⌘T font
+(observe note windows' `didBecomeKey` — the *panel* becoming key during interaction
+must NOT end the session). The single source of truth is an app-level "active fill/
+font session owner" token (a `weak` controller reference); a panel action is a no-op
+unless its controller *is* that token, so a stale target can never mutate the wrong
+note. The controller must clear the token when it points at itself, never leave a
+dangling one. The Edit-menu ⌘T font
 panel path (§4) keeps
 its standard first-responder behavior; the toolbar's "Show Fonts…" makes its own
 text view first responder before ordering the panel front, so both paths agree on
