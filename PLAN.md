@@ -265,6 +265,7 @@ All phases complete (2026-06-06) except the reboot-stability check in §7(b).
 | 2 | NoteStore + persistence + status item; multi-note CRUD surviving relaunch | Kill -9 loses ≤1 s of typing; relaunch restores all notes/frames |
 | 3 | SpaceTracker + placement (A′ real placement, lazy materialization, or Resume wiring — per Phase 0 verdicts) | 6–8 notes across 4 spaces + reboot → every note on its own space; Mission-Control drag of a note to another space sticks |
 | 4 | Polish: login item, Edit menu, fonts panel, screen-arrangement clamping, dark mode pass | Daily-drivable |
+| 5 | Text/format toolbar (§9): per-note toggleable format bar, custom colors, opacity slider | Style text + recolor + set opacity without leaving the note |
 
 ## 7. Phase 0 results (2026-06-06, macOS 26.5.1 / 25F80)
 
@@ -316,3 +317,65 @@ Spike: `swift run SpikeSpaces [--dump | --automove]`; log: `spike-spaces.log`.
    appear in Mission Control / Exposé for other spaces, and a note "arrives" on first
    visit to its space post-launch. Acceptable quirk; A′, if Phase 0 confirms it, removes
    it entirely.
+
+## 9. Text/format toolbar (Phase 5)
+
+A tiny per-note formatting bar in the spirit of the strip widgets (design reviewed with
+the user, 2026-06-07).
+
+### The bar
+
+- **`ToolbarView`**: a 20 pt band directly **below the strip** (text pushed down),
+  filled with the strip tint so it reads as part of the paper, not chrome. Respects
+  `bodyAlpha`; hidden while collapsed. Icons are SF Symbols at ~11 pt tinted
+  `black @ 45%` to match the hand-drawn × / chevron ink.
+- **Per-note, persisted**: `Note.showsToolbar: Bool` (default `false`). Toggled via a
+  "Show Toolbar" item in the strip context menu **and** a third hover glyph on the
+  strip ("Aa", left of the collapse chevron).
+- **Overflow chevron »**: when the note is narrower than the full bar (~155 pt), the
+  trailing controls that don't fit collapse into a **»** button whose menu exposes the
+  hidden controls as menu items (submenus for styles/families/alignment; the opacity
+  slider as an `NSMenuItem` view). No min-width clamp, no detached windows — the bar
+  works at any note width.
+
+### Controls, left → right
+
+1. **Font family** (`textformat` glyph) → menu: "Show Fonts…" (`NSFontPanel`),
+   divider, the family list (`NSFontManager.availableFontFamilies`, each item rendered
+   in its own typeface via attributed titles, built lazily on menu open, checkmark on
+   the selection's current family).
+2. **Styles** (`bold` glyph) → menu: Bold ⌘B / Italic ⌘I / Underline ⌘U /
+   Strikethrough / Outline, with menu states reflecting the current selection.
+   Bold/Italic via `NSFontManager` traits; underline/strikethrough via attributes;
+   outline via `NSStrokeWidth` (~3.0). Room to grow (Bigger/Smaller etc.) after a
+   first look.
+3. **Alignment**: three line-stack buttons wired to the native
+   `alignLeft:/alignCenter:/alignRight:` actions; current paragraph alignment
+   highlighted.
+4. **Note color** (swatch glyph) → popover: the six classic swatches + "Custom…"
+   opening `NSColorPanel`. All styling actions target the text view's selection (or
+   typing attributes when the selection is empty — native behavior) and persist
+   through the existing RTF path for free.
+5. **Opacity** (translucency glyph) → popover with a live slider, **25–100 %**.
+
+### Model changes (manifest v2)
+
+- `isTranslucent: Bool` → **`opacity: Double`**. Explicit migration on decode:
+  v1 `true → 0.8`, `false → 1.0`. Manifest `version` bumps to 2; a v2 manifest is
+  never written until a successful v1 read (the corrupt-manifest quarantine path is
+  unchanged).
+- **Custom colors**: `Note.color` becomes `NoteFill` — `case preset(NoteColor)` /
+  `case custom(rgb: UInt32)` — with custom `Codable` keeping the manifest field a
+  plain string (`"yellow"` or `"#RRGGBB"`), so v1 manifests decode unchanged. A custom
+  fill derives its strip/toolbar tint programmatically (darken ~10 %, nudge
+  saturation — the same body→strip relationship the presets have).
+- Strip context menu: color items + "Show Toolbar"; "Translucent" becomes a checkbox
+  meaning `opacity < 1` (on → restore 1.0, off → last sub-1.0 value, default 0.8).
+
+### Included nit fix
+
+The strip's close/collapse widgets sit inside the borderless-resizable window's
+edge-resize band, so hovering them shows the diagonal resize cursor and they feel
+non-clickable. Fix: a `.cursorUpdate` tracking area on the strip asserting
+`NSCursor.arrow`; verify empirically that it wins over the window-edge resize zones
+(see §8.6) and document the residual band if it doesn't fully.
