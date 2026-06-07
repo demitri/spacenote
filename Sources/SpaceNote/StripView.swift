@@ -21,13 +21,19 @@ final class StripView: NSView {
     override func updateTrackingAreas() {
         trackingAreas.forEach(removeTrackingArea)
         addTrackingArea(NSTrackingArea(rect: bounds,
-                                       options: [.mouseEnteredAndExited, .activeAlways],
+                                       options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways],
                                        owner: self))
         super.updateTrackingAreas()
     }
 
     override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
     override func mouseExited(with event: NSEvent) { hovered = false; needsDisplay = true }
+
+    /// The strip overlaps the borderless window's edge-resize band, so the close
+    /// and collapse widgets would otherwise show the diagonal resize cursor and
+    /// feel non-clickable. The strip is a drag/click handle, not a resize edge —
+    /// force the arrow over the whole band (PLAN.md §9 nit).
+    override func cursorUpdate(with event: NSEvent) { NSCursor.arrow.set() }
 
     private var glyphSize: CGFloat { 7 }
     private var closeRect: NSRect {
