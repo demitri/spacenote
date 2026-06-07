@@ -325,17 +325,30 @@ the user, 2026-06-07).
 
 ### The bar
 
-- **`ToolbarView`**: a 20 pt band directly **below the strip** (text pushed down),
-  filled with the strip tint so it reads as part of the paper, not chrome. Respects
-  `bodyAlpha`; hidden while collapsed. Icons are SF Symbols at ~11 pt tinted
-  `black @ 45%` to match the hand-drawn × / chevron ink.
+- **`ToolbarView`**: a 20 pt band directly **below the strip**, filled with the strip
+  tint so it reads as part of the paper, not chrome. Icons are SF Symbols at ~11 pt
+  tinted `black @ 45%` to match the hand-drawn × / chevron ink.
+- **Geometry**: the toolbar lives *inside* the existing window frame — toggling it
+  never resizes or moves the window; the text area shrinks/grows by the 20 pt band
+  (`NoteRootView.layout()` offsets `scroll` by strip + toolbar when shown). Collapse
+  arithmetic is **untouched**: a collapsed note is still exactly `StripView.height`
+  tall, the toolbar hides along with the scroll view, and `expandedHeight` /
+  persisted-frame semantics don't change.
+- **Drawing**: `ToolbarView` fills its own band with the strip tint at `bodyAlpha`,
+  and `NoteRootView.draw(_:)` fills only *below* strip + toolbar — extending the
+  existing rule that translucent fills must never overlap (they'd compound).
 - **Per-note, persisted**: `Note.showsToolbar: Bool` (default `false`). Toggled via a
-  "Show Toolbar" item in the strip context menu **and** a third hover glyph on the
-  strip ("Aa", left of the collapse chevron).
+  context-menu item (title swaps "Show Toolbar"/"Hide Toolbar" in `menuNeedsUpdate`)
+  **and** a third hover glyph on the strip: "Aa", same 7 pt glyph metric and hover
+  behavior as the × / chevron, 6 pt left of the collapse chevron's hitbox. Below
+  ~64 pt strip width the "Aa" is not drawn (close/collapse win the space — an
+  explicit rule, not a clipping accident); the context-menu item always works.
 - **Overflow chevron »**: when the note is narrower than the full bar (~155 pt), the
-  trailing controls that don't fit collapse into a **»** button whose menu exposes the
-  hidden controls as menu items (submenus for styles/families/alignment; the opacity
-  slider as an `NSMenuItem` view). No min-width clamp, no detached windows — the bar
+  trailing controls that don't fit collapse into a **»** button at the right edge.
+  Its menu reuses the same actions: font-family submenu, styles submenu, alignment
+  items, note-color submenu (swatches + "Custom…"), and an "Opacity…" item that opens
+  the standard opacity popover anchored at the » button — no `NSMenuItem.view`-hosted
+  slider (finicky API, no payoff). No min-width clamp, no detached windows — the bar
   works at any note width.
 
 ### Controls, left → right
@@ -343,7 +356,10 @@ the user, 2026-06-07).
 1. **Font family** (`textformat` glyph) → menu: "Show Fonts…" (`NSFontPanel`),
    divider, the family list (`NSFontManager.availableFontFamilies`, each item rendered
    in its own typeface via attributed titles, built lazily on menu open, checkmark on
-   the selection's current family).
+   the selection's current family). Display fallback rule: if a family's font fails to
+   load or can't render its own name (symbol/CJK/math families), that item falls back
+   to the menu font **for display only** — the family stays present and selectable.
+   Never skip an item.
 2. **Styles** (`bold` glyph) → menu: Bold ⌘B / Italic ⌘I / Underline ⌘U /
    Strikethrough / Outline, with menu states reflecting the current selection.
    Bold/Italic via `NSFontManager` traits; underline/strikethrough via attributes;
@@ -355,9 +371,13 @@ the user, 2026-06-07).
 4. **Note color** (swatch glyph) → popover: the six classic swatches + "Custom…"
    opening `NSColorPanel`. This is the **note background fill** (`Note.color`, lives
    in the manifest) — NOT text color, which is out of scope for Phase 5. Sharp edge:
-   `NSColorPanel` sends `changeColor(_:)` down the responder chain, which `NSTextView`
-   implements (it would recolor the *text*) — the panel's target/action must be wired
-   explicitly to the note controller, never left on the responder chain.
+   with no explicit target, `NSColorPanel` sends `changeColor(_:)` down the responder
+   chain, which `NSTextView` implements (it would recolor the *text*). Primary wiring:
+   `panel.setTarget(controller)` + `setAction` for the duration of the fill-picking
+   session. Verify empirically that no `changeColor(_:)` still reaches the text view
+   during the session (AppKit has double-delivered on some paths historically); if it
+   does, additionally guard `NoteTextView.changeColor(_:)` behind a
+   "fill-session active" flag on the controller. Never rely on the responder chain.
 5. **Opacity** (translucency glyph) → popover with a live slider, **25–100 %**.
 
 Controls 1–3 act on the **text**: they target the text view's selection (or typing
@@ -371,15 +391,34 @@ otherwise actions silently degrade to typing-attribute changes.
 
 - **Translucency**: keep `isTranslucent: Bool`; add `translucentOpacity: Double`
   (decode default **0.8** when absent; field is backward-compatible on read).
-  Effective body alpha = `isTranslucent ? translucentOpacity : 1.0`. The slider edits
-  `translucentOpacity` live (dragging to 100 % clears `isTranslucent`; dragging below
-  sets it); the context-menu "Translucent" checkbox = `isTranslucent`, and toggling it
-  on restores the remembered `translucentOpacity`.
+  Effective body alpha is a **pure computed property** `Note.effectiveAlpha =
+  isTranslucent ? translucentOpacity : 1.0`, consumed by `applyAppearance()` (which
+  currently hardcodes 0.80 — a named change site) and unit-tested directly.
+  `translucentOpacity` stores **only sub-1.0 values**: the slider shows
+  `effectiveAlpha`; dragging below 100 % sets `isTranslucent` and stores the value;
+  dragging to 100 % clears `isTranslucent` but **preserves** the remembered
+  `translucentOpacity` (so the context-menu "Translucent" checkbox toggles back to a
+  visibly translucent state, never to an invisible `1.0`-while-translucent). The 25 %
+  slider floor is a UI clamp; stored values land in `[0.25, 1.0)`.
 - **Custom colors**: `Note.color` becomes `NoteFill` — `case preset(NoteColor)` /
   `case custom(rgb: UInt32)` — with custom `Codable` keeping the manifest field a
-  plain string (`"yellow"` or `"#RRGGBB"`), so v1 manifests decode unchanged. A custom
-  fill derives its strip/toolbar tint programmatically (darken ~10 %, nudge
-  saturation — the same body→strip relationship the presets have).
+  plain string (`"yellow"` or `"#RRGGBB"`), so v1 manifests decode unchanged.
+  `NoteFill` exposes the `body` / `strip` `NSColor` pair (presets delegate to
+  `NoteColor`; a custom fill derives its strip/toolbar tint programmatically — darken
+  ~10 %, nudge saturation, the same body→strip relationship the presets have), so all
+  color consumers flow through `NoteFill` and never branch on preset-vs-custom.
+- **Enumerated `NoteFill` change sites** (the type change must compile through all of
+  these, not be ad-hoc patched): `Note.color`; `NoteStore.create(frame:color:)`
+  signature; `StatusItemController`'s swatch (`note.color.body`);
+  `NoteWindowController.buildContextMenu()` / `pickColor(_:)` / `menuNeedsUpdate(_:)`
+  (today's `rawValue` string comparisons become `NoteFill` equality); and
+  `applyAppearance()`.
+- **Context menu**: the six preset items stay (they now assign `.preset` fills;
+  checkmark = `NoteFill` equality, so a custom fill checks none) and gain a "Custom…"
+  item — deliberate duplication with the toolbar popover, since the toolbar can be
+  hidden and Stickies likewise offers colors in both places. `menuNeedsUpdate` also
+  drives the "Show Toolbar"/"Hide Toolbar" title swap; every new item gets a
+  `menuNeedsUpdate` case (the `default: break` arm must not silently absorb one).
 - `Note.showsToolbar: Bool`, decode default `false`.
 - Manifest `version` bumps to **2**: the new reader decodes v1 manifests unchanged
   (every new field has an explicit decode default, and preset color strings are a
@@ -390,8 +429,9 @@ otherwise actions silently degrade to typing-attribute changes.
   `version`; the bump is an honest schema-family marker, not a runtime check.)
 - **Unit tests** (extending the §5 manifest round-trip suite): `NoteFill` Codable
   round-trip (preset + custom + v1 string decode), `showsToolbar`/`translucentOpacity`
-  decode defaults on a v1 fixture, and effective-alpha semantics of the
-  translucency toggle.
+  decode defaults on a v1 fixture, `effectiveAlpha` semantics, and the slider
+  boundary rule (set to 100 % → `isTranslucent == false` with `translucentOpacity`
+  preserved).
 
 ### Included nit fix
 
