@@ -333,16 +333,32 @@ the user, 2026-06-07).
   (`NoteRootView.layout()` offsets `scroll` by strip + toolbar when shown). Collapse
   arithmetic is **untouched**: a collapsed note is still exactly `StripView.height`
   tall, the toolbar hides along with the scroll view, and `expandedHeight` /
-  persisted-frame semantics don't change.
-- **Drawing**: `ToolbarView` fills its own band with the strip tint at `bodyAlpha`,
-  and `NoteRootView.draw(_:)` fills only *below* strip + toolbar — extending the
-  existing rule that translucent fills must never overlap (they'd compound).
-- **Per-note, persisted**: `Note.showsToolbar: Bool` (default `false`). Toggled via a
-  context-menu item (title swaps "Show Toolbar"/"Hide Toolbar" in `menuNeedsUpdate`)
-  **and** a third hover glyph on the strip: "Aa", same 7 pt glyph metric and hover
-  behavior as the × / chevron, 6 pt left of the collapse chevron's hitbox. Below
-  ~64 pt strip width the "Aa" is not drawn (close/collapse win the space — an
-  explicit rule, not a clipping accident); the context-menu item always works.
+  persisted-frame semantics don't change. (`contentMinSize` 60×40 is deliberately
+  not revisited: a 40 pt note with the toolbar shown leaves ~6 pt of text — degenerate
+  but bounded, and the existing `max(0, …)` layout guards hold.)
+- **Drawing**: `ToolbarView` fills its own band with the strip tint, and
+  `NoteRootView.draw(_:)` fills only *below* strip + toolbar — extending the existing
+  rule that translucent fills must never overlap (they'd compound).
+- **Strip stays grabbable**: strip and toolbar alpha = `max(bodyAlpha, 0.70)` —
+  decoupled from the body so a low-opacity note is always findable and draggable
+  (change sites: `NoteRootView.bodyAlpha.didSet`, which today sets `strip.alpha =
+  bodyAlpha` verbatim).
+- **Contrast-aware ink**: the chrome ink (strip glyphs, toolbar symbols) is computed
+  from the fill's luminance — `black @ 45%` on light fills (all presets), white at a
+  matched weight on dark *custom* fills — replacing today's hardcoded
+  `NSColor.black.withAlphaComponent(0.45)` in `StripView.draw`. Default *text* color
+  on a dark fill is the user's domain (it's rich text); the window keeps its pinned
+  `.aqua` appearance.
+- **Per-note, persisted**: `Note.showsToolbar: Bool` (default `false`; new notes
+  start bare — no sticky/global default). Primary toggles: a context-menu item and a
+  main-menu **"Show Toolbar" ⌘⇧T** acting on the key note (both titles swap
+  Show/Hide in `menuNeedsUpdate`; the main-menu item makes the shortcut visible,
+  alongside the §4 Edit menu).
+- **Provisional strip glyph**: a third hover glyph ("Aa", same 7 pt metric, 6 pt left
+  of the collapse chevron's hitbox; not drawn below ~64 pt strip width — an explicit
+  rule, not a clipping accident) lands in its **own commit** for live evaluation —
+  opus review flagged three hover-reveal micro-targets in a 14 pt band as a
+  discoverability/fiddliness risk; the user decides keep-or-drop in the running app.
 - **Overflow chevron »**: when the note is narrower than the full bar (~155 pt), the
   trailing controls that don't fit collapse into a **»** button at the right edge.
   Its menu reuses the same actions: font-family submenu, styles submenu, alignment
@@ -382,10 +398,27 @@ the user, 2026-06-07).
 
 Controls 1–3 act on the **text**: they target the text view's selection (or typing
 attributes when the selection is empty — native behavior) and persist through the
-existing RTF path for free. Rule: every toolbar control refuses first-responder
-status (`refusesFirstResponder`, menus/popovers non-activating where applicable) so
-clicking a tool never collapses the selection or steals focus from the text view —
-otherwise actions silently degrade to typing-attribute changes.
+existing RTF path for free. Two routing rules, both directions:
+
+- **Outbound**: every toolbar control refuses first-responder status
+  (`refusesFirstResponder`, menus/popovers non-activating where applicable) so
+  clicking a tool never collapses the selection or steals focus from the text view.
+- **Inbound**: no control's action is delivered via the ambient responder chain —
+  `changeFont(_:)`, style traits, and alignment all dispatch **explicitly to the
+  owning controller's `root.textView`** (made first responder first if it isn't).
+  Responder-chain delivery would silently no-op when the text view isn't first
+  responder, or style the *wrong note* when another note is key — the same
+  "intermittently dead controls" class §2 warns about. The color rule below is the
+  same rule; it applies to all four control groups.
+
+**Shared-panel ownership** (`NSColorPanel`, `NSFontPanel` are single system-wide
+panels): opening a session from any note retargets the panel to that note's
+controller and ends the previous note's session; a session also ends when the panel
+closes or the note's window closes (the controller must clear a target that points
+at itself, never leave a dangling one). The Edit-menu ⌘T font panel path (§4) keeps
+its standard first-responder behavior; the toolbar's "Show Fonts…" makes its own
+text view first responder before ordering the panel front, so both paths agree on
+the target.
 
 ### Model changes
 
