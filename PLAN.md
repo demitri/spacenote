@@ -265,7 +265,7 @@ All phases complete (2026-06-06) except the reboot-stability check in §7(b).
 | 2 | NoteStore + persistence + status item; multi-note CRUD surviving relaunch | Kill -9 loses ≤1 s of typing; relaunch restores all notes/frames |
 | 3 | SpaceTracker + placement (A′ real placement, lazy materialization, or Resume wiring — per Phase 0 verdicts) | 6–8 notes across 4 spaces + reboot → every note on its own space; Mission-Control drag of a note to another space sticks |
 | 4 | Polish: login item, Edit menu, fonts panel, screen-arrangement clamping, dark mode pass | Daily-drivable |
-| 5 | Text/format toolbar (§9): per-note toggleable format bar, custom colors, opacity slider | Style text + recolor + set opacity without leaving the note |
+| 5 | Text/format toolbar (§9): per-note toggleable format bar, custom colors, opacity slider | Style text + recolor the note background (incl. custom fills) + set opacity without leaving the note |
 
 ## 7. Phase 0 results (2026-06-06, macOS 26.5.1 / 25F80)
 
@@ -381,8 +381,13 @@ otherwise actions silently degrade to typing-attribute changes.
   fill derives its strip/toolbar tint programmatically (darken ~10 %, nudge
   saturation — the same body→strip relationship the presets have).
 - `Note.showsToolbar: Bool`, decode default `false`.
-- Manifest `version` stays 1: every new field has an explicit decode default and v1
-  manifests decode unchanged (the corrupt-manifest quarantine path is untouched).
+- Manifest `version` bumps to **2**: the new reader decodes v1 manifests unchanged
+  (every new field has an explicit decode default, and preset color strings are a
+  subset of `NoteFill`'s encoding), but a manifest holding a custom `"#RRGGBB"` color
+  is not readable by an old binary — **downgrade is unsupported**. That failure is
+  non-destructive by design: the old reader's quarantine path preserves the manifest
+  file and never touches the RTFs. (Note `loadAll` does not currently gate on
+  `version`; the bump is an honest schema-family marker, not a runtime check.)
 - **Unit tests** (extending the §5 manifest round-trip suite): `NoteFill` Codable
   round-trip (preset + custom + v1 string decode), `showsToolbar`/`translucentOpacity`
   decode defaults on a v1 fixture, and effective-alpha semantics of the
