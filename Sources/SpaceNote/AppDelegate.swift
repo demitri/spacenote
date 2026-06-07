@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) lazy var spaceManager = SpaceManager { [unowned self] in self.controllers }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        enforceSingleInstance()
         NSApp.mainMenu = buildMainMenu()
         statusItemController = StatusItemController(appDelegate: self)
 
@@ -22,6 +23,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // windows or it drags the user's desktop along (Phase 0 fact).
             spaceManager.performLaunchPlacement()
         }
+    }
+
+    /// Two instances (e.g. dist/ copy + installed copy — Launch Services only
+    /// dedupes per bundle *path*, not per bundle id) would fight over one data
+    /// directory and double every note window. Defer to the older instance.
+    private func enforceSingleInstance() {
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }   // bare `swift run`
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        guard let existing = others.first else { return }
+        NSLog("SpaceNote: another instance is already running (pid \(existing.processIdentifier), \(existing.bundleURL?.path ?? "?")) — quitting this one")
+        existing.activate()
+        NSApp.terminate(nil)   // store untouched: nothing loaded or dirty yet
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

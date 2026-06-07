@@ -22,7 +22,7 @@ run: app
 install: app
 	mkdir -p $(INSTALL_DIR)
 	rm -rf $(INSTALL_DIR)/SpaceNote.app
-	cp -R $(APP) $(INSTALL_DIR)/SpaceNote.app
+	ditto $(APP) $(INSTALL_DIR)/SpaceNote.app
 	@echo "Installed to $(INSTALL_DIR)/SpaceNote.app"
 
 clean:
