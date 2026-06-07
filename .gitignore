@@ -1,4 +1,16 @@
+# Build products
 .build/
+dist/
+
+# Xcode user settings
+xcuserdata/
+*.xcodeproj
+.swiftpm/
+
+# Debug symbols / packaging
+*.dSYM
+*.dSYM.zip
+
+# Misc
 *.log
 .DS_Store
-dist/
