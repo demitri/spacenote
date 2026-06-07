@@ -47,6 +47,10 @@ final class NoteWindowController: NSWindowController {
         window.initialFirstResponder = root.textView
         root.strip.onClose = { [weak self] in self?.requestClose() }
         root.strip.onToggleCollapse = { [weak self] in self?.toggleCollapse() }
+        root.strip.onToggleToolbar = { [weak self] in
+            guard let self else { return }
+            setToolbarShown(!note.showsToolbar)
+        }
         root.strip.menu = buildContextMenu()
         root.toolbar.delegate = self
 

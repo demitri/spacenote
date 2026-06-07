@@ -11,6 +11,12 @@ final class StripView: NSView {
     var ink: NSColor = NSColor.black.withAlphaComponent(0.45) { didSet { needsDisplay = true } }
     var onClose: (() -> Void)?
     var onToggleCollapse: (() -> Void)?
+    var onToggleToolbar: (() -> Void)?
+
+    /// Provisional (PLAN.md §9): a third hover affordance for the format toolbar,
+    /// here for a live keep-or-drop look. Suppressed on narrow strips so it can't
+    /// crowd close/collapse.
+    private var showsAaGlyph: Bool { bounds.width >= 64 }
 
     private var hovered = false
 
@@ -43,6 +49,10 @@ final class StripView: NSView {
         NSRect(x: bounds.width - glyphSize - 5, y: (bounds.height - glyphSize) / 2,
                width: glyphSize, height: glyphSize)
     }
+    private var aaRect: NSRect {
+        // 6 pt left of the collapse chevron's hitbox.
+        NSRect(x: collapseRect.minX - 6 - 16, y: 0, width: 16, height: bounds.height)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         color.withAlphaComponent(alpha).setFill()
@@ -65,6 +75,16 @@ final class StripView: NSView {
         c.line(to: NSPoint(x: collapseRect.midX, y: collapseRect.minY + 1))
         c.line(to: NSPoint(x: collapseRect.maxX, y: collapseRect.maxY - 1.5))
         c.stroke()
+        // Toolbar toggle: "Aa" (provisional)
+        if showsAaGlyph {
+            let label = NSAttributedString(string: "Aa", attributes: [
+                .font: NSFont.systemFont(ofSize: 9, weight: .semibold),
+                .foregroundColor: ink,
+            ])
+            let size = label.size()
+            label.draw(at: NSPoint(x: aaRect.midX - size.width / 2,
+                                   y: aaRect.midY - size.height / 2))
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -75,6 +95,10 @@ final class StripView: NSView {
         }
         if collapseRect.insetBy(dx: -3, dy: -3).contains(p) {
             onToggleCollapse?()
+            return
+        }
+        if showsAaGlyph && aaRect.contains(p) {
+            onToggleToolbar?()
             return
         }
         if event.clickCount == 2 {
