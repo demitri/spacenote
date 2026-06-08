@@ -163,7 +163,9 @@ final class ToolbarView: NSView {
         for tool in tools {
             let active: Bool
             switch tool.id {
-            case .alignLeft:   active = current == .left
+            // Untouched text reports `.natural`, which renders left for LTR — light
+            // the Left button so a fresh note isn't shown with no alignment active.
+            case .alignLeft:   active = current == .left || current == .natural
             case .alignCenter: active = current == .center
             case .alignRight:  active = current == .right
             default:           active = false

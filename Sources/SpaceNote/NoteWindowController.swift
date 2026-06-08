@@ -274,13 +274,18 @@ extension NoteWindowController: NSWindowDelegate {
     /// so it never fires this — the session survives panel interaction.
     func windowDidBecomeKey(_ notification: Notification) {
         if let owner = NoteWindowController.fillSessionOwner, owner !== self {
-            NoteWindowController.fillSessionOwner = nil
+            NoteWindowController.endFillColorSession()
         }
     }
 
     func windowWillClose(_ notification: Notification) {
+        // If we still own the session, unwire the panel — otherwise its strong
+        // target reference leaks this whole controller + view tree (codex/sonnet
+        // review). A foreign session was already torn down when that note became
+        // key (windowDidBecomeKey → endFillColorSession), so the panel never
+        // points at a closing non-owner.
         if NoteWindowController.fillSessionOwner === self {
-            NoteWindowController.fillSessionOwner = nil
+            NoteWindowController.endFillColorSession()
         }
         activePopover?.close()
     }
@@ -294,6 +299,13 @@ extension NoteWindowController: NSTextViewDelegate {
             return
         }
         store.textChanged(id: note.id, rtf: rtf)
+    }
+
+    /// Moving the caret into a differently-aligned paragraph must re-light the
+    /// matching alignment button (it's otherwise only refreshed on toolbar layout
+    /// and align clicks — codex review).
+    func textViewDidChangeSelection(_ notification: Notification) {
+        root.toolbar.updateAlignmentHighlight()
     }
 }
 
@@ -355,8 +367,14 @@ extension NoteWindowController: ToolbarViewDelegate {
             tv.typingAttributes[.font] = transform(current)
             return
         }
+        let editRanges = ranges.filter { $0.length > 0 }
+        // shouldChangeText(inRanges:) registers the affected ranges' prior
+        // attributed content with the undo manager; without it, a direct
+        // storage mutation is invisible to undo and cmd-Z skips to the previous
+        // action (the bug: font change applied, but cmd-Z undid the alignment).
+        guard tv.shouldChangeText(inRanges: editRanges as [NSValue], replacementStrings: nil) else { return }
         storage.beginEditing()
-        for range in ranges where range.length > 0 {
+        for range in editRanges {
             storage.enumerateAttribute(.font, in: range, options: []) { value, sub, _ in
                 let current = (value as? NSFont) ?? base
                 storage.addAttribute(.font, value: transform(current), range: sub)
@@ -388,15 +406,17 @@ extension NoteWindowController: ToolbarViewDelegate {
         let tv = root.textView
         guard let storage = tv.textStorage else { return }
         let turnOn = !currentAttributeIsOn(key)
-        let offValue = 0
+        let offValue: NSNumber = 0   // typed zero: .strokeWidth is Double, underline is Int
         let ranges = tv.selectedRanges.map(\.rangeValue)
 
         if ranges.allSatisfy({ $0.length == 0 }) {
             tv.typingAttributes[key] = turnOn ? onValue : offValue
             return
         }
+        let editRanges = ranges.filter { $0.length > 0 }
+        guard tv.shouldChangeText(inRanges: editRanges as [NSValue], replacementStrings: nil) else { return }
         storage.beginEditing()
-        for range in ranges where range.length > 0 {
+        for range in editRanges {
             if turnOn { storage.addAttribute(key, value: onValue, range: range) }
             else { storage.removeAttribute(key, range: range) }
         }
@@ -482,12 +502,13 @@ extension NoteWindowController: ToolbarViewDelegate {
     func toolbarAlign(_ alignment: NSTextAlignment) {
         focusTextView()
         let tv = root.textView
+        // These native actions register undo and fire textDidChange themselves
+        // (which serializes + saves) — no explicit didChangeText, or it double-saves.
         switch alignment {
         case .center: tv.alignCenter(nil)
         case .right:  tv.alignRight(nil)
         default:      tv.alignLeft(nil)
         }
-        tv.didChangeText()
     }
 
     func toolbarShowColorPopover(from view: NSView) {
@@ -565,7 +586,21 @@ extension NoteWindowController: ToolbarViewDelegate {
 
     // MARK: Shared color-panel fill session
 
+    /// End the active fill session and unwire the shared panel, so a stale target
+    /// can neither mutate the wrong note nor leak its owner (NSColorPanel retains
+    /// its target strongly). Invariant: `fillSessionOwner != nil` ⟺ the panel
+    /// targets that owner — they're always set/cleared together here, so we never
+    /// need to read back `NSColorPanel.target` (which has no public getter).
+    static func endFillColorSession() {
+        guard fillSessionOwner != nil else { return }
+        let panel = NSColorPanel.shared
+        panel.setTarget(nil)
+        panel.setAction(nil)
+        fillSessionOwner = nil
+    }
+
     private func beginFillColorSession() {
+        NoteWindowController.endFillColorSession()   // end any other note's session first
         NoteWindowController.fillSessionOwner = self
         let panel = NSColorPanel.shared
         panel.setTarget(self)
@@ -578,7 +613,12 @@ extension NoteWindowController: ToolbarViewDelegate {
     @objc private func fillColorChanged(_ sender: NSColorPanel) {
         // Ownership guard: ignore unless this controller still owns the session.
         guard NoteWindowController.fillSessionOwner === self else { return }
-        let c = sender.color.usingColorSpace(.sRGB) ?? sender.color
+        // A non-RGB panel color (e.g. a pattern) can't be read componentwise —
+        // surface and skip rather than trap on .redComponent (no-silent-skip).
+        guard let c = sender.color.usingColorSpace(.sRGB) else {
+            NSLog("SpaceNote: fill color \(sender.color) not representable as sRGB — ignoring")
+            return
+        }
         let rgb = (UInt32(round(c.redComponent * 255)) << 16)
                 | (UInt32(round(c.greenComponent * 255)) << 8)
                 | UInt32(round(c.blueComponent * 255))
