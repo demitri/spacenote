@@ -40,6 +40,10 @@ final class NoteRootView: NSView {
             let chrome = max(bodyAlpha, 0.70)
             strip.alpha = chrome
             toolbar.alpha = chrome
+            // Fade the text with the paper. The background fill honors bodyAlpha
+            // in draw(), but the text view is an opaque subview drawn on top —
+            // without this its glyphs stay solid while the note ghosts (the bug).
+            scroll.alphaValue = bodyAlpha
             needsDisplay = true
         }
     }

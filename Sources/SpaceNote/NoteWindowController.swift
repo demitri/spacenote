@@ -49,7 +49,9 @@ final class NoteWindowController: NSWindowController {
         root.strip.onToggleCollapse = { [weak self] in self?.toggleCollapse() }
         root.strip.onToggleToolbar = { [weak self] in
             guard let self else { return }
-            setToolbarShown(!note.showsToolbar)
+            // self.note, NOT the init parameter `note` — unqualified `note` here
+            // captures the construction-time constant and freezes the toggle.
+            setToolbarShown(!self.note.showsToolbar)
         }
         root.strip.menu = buildContextMenu()
         root.toolbar.delegate = self
@@ -279,11 +281,11 @@ extension NoteWindowController: NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        // If we still own the session, unwire the panel — otherwise its strong
-        // target reference leaks this whole controller + view tree (codex/sonnet
-        // review). A foreign session was already torn down when that note became
-        // key (windowDidBecomeKey → endFillColorSession), so the panel never
-        // points at a closing non-owner.
+        // If we still own the session, unwire the shared panel from us. A note
+        // that never owned the session (never opened the panel, or had it taken
+        // over when another note became key) is already not the panel's target,
+        // so the invariant guarantees the panel never points at a closing note
+        // that isn't the current owner.
         if NoteWindowController.fillSessionOwner === self {
             NoteWindowController.endFillColorSession()
         }
@@ -586,16 +588,23 @@ extension NoteWindowController: ToolbarViewDelegate {
 
     // MARK: Shared color-panel fill session
 
-    /// End the active fill session and unwire the shared panel, so a stale target
-    /// can neither mutate the wrong note nor leak its owner (NSColorPanel retains
-    /// its target strongly). Invariant: `fillSessionOwner != nil` ⟺ the panel
-    /// targets that owner — they're always set/cleared together here, so we never
-    /// need to read back `NSColorPanel.target` (which has no public getter).
+    private static var panelCloseObserver: NSObjectProtocol?
+
+    /// End the active fill session and fully unwire the shared panel from its
+    /// owner — clearing the target/action keeps a stale change from firing into
+    /// the wrong (or a dead) note regardless of how `NSColorPanel` holds its
+    /// target. Invariant: `fillSessionOwner != nil` ⟺ the panel targets that
+    /// owner — they're always set/cleared together here, so we never read back
+    /// `NSColorPanel.target` (which has no public getter).
     static func endFillColorSession() {
         guard fillSessionOwner != nil else { return }
         let panel = NSColorPanel.shared
         panel.setTarget(nil)
         panel.setAction(nil)
+        if let observer = panelCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+            panelCloseObserver = nil
+        }
         fillSessionOwner = nil
     }
 
@@ -607,6 +616,11 @@ extension NoteWindowController: ToolbarViewDelegate {
         panel.setAction(#selector(fillColorChanged(_:)))
         panel.showsAlpha = false
         panel.color = note.color.body
+        // PLAN §9: the session also ends when the user closes the panel itself.
+        NoteWindowController.panelCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: panel, queue: .main) { _ in
+                NoteWindowController.endFillColorSession()
+        }
         panel.orderFront(nil)
     }
 

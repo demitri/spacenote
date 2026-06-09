@@ -69,6 +69,12 @@ final class SpaceManager {
                !tracker.snapshot.currentSpaceIDs.contains(target.id64),
                tracker.writesAvailable {
                 controller.window?.alphaValue = 0
+                // A .floating-level window can't be moved across Spaces by CGS —
+                // the move silently no-ops (observed: a floating note "wanted 4"
+                // but stayed on 5). Drop to .normal for the move; float is
+                // restored after verification. Without this the move "fails" and
+                // (pre-fix) froze the whole write tier.
+                if note.isFloating { controller.window?.level = .normal }
                 pendingMoves.append((controller, target))
             } else if note.spaceUUID != nil, target == nil {
                 NSLog("SpaceNote: note \(note.id) was on a desktop that no longer exists — re-homing to the current space")
@@ -89,15 +95,25 @@ final class SpaceManager {
                 tracker.moveWindow(controller.window?.windowNumber ?? -1, to: target)
             }
             var remaining = pendingMoves.count
+            var failures = 0
             for (controller, target) in pendingMoves {
                 verifyMove(of: controller, to: target, attemptsLeft: 2) { [self] success in
                     if !success {
                         NSLog("SpaceNote: placement of note \(controller.note.id) FAILED (wanted \(target.id64))")
-                        tracker.reportWriteFailure()
+                        failures += 1
                     }
+                    // Restore float level regardless of move outcome — a floating
+                    // window, once on its space, stays there.
+                    if controller.note.isFloating { controller.window?.level = .floating }
                     controller.window?.alphaValue = 1   // unconditionally — never leave a window invisible
                     remaining -= 1
                     if remaining == 0 {
+                        // Conclude the write TIER is broken only if EVERY move
+                        // failed — one note failing must never freeze placement and
+                        // restamping for all the others (the cascade bug).
+                        if failures == pendingMoves.count {
+                            tracker.reportWriteFailure()
+                        }
                         placementInFlight = false
                         restampAll()   // also stamps unstamped and re-homed notes
                     }
@@ -137,6 +153,14 @@ final class SpaceManager {
 
     private func restamp(_ controller: NoteWindowController) {
         guard !placementInFlight, tracker.writesAvailable else { return }
+        // Float-on-top notes are pinned by their stamp + launch placement, not by
+        // drag-readback. A floating (.floating-level) window can't be dragged
+        // across Spaces — macOS snaps it back — and that fight emits a storm of
+        // move/space-change notifications. Restamping from that half-moved reality
+        // both flickers and corrupts the saved desktop (ord 4→3→4 churn observed).
+        // Their stamp only changes via an explicit toggle-off → drag → toggle-on,
+        // when the note is momentarily non-floating and restamps normally.
+        guard !controller.note.isFloating else { return }
         guard let windowNumber = controller.window?.windowNumber, windowNumber > 0 else { return }
         let ids = tracker.spaceIDs(forWindow: windowNumber)
         guard ids.count == 1 else {
@@ -220,12 +244,19 @@ final class SpaceManager {
             return
         }
         placementInFlight = true   // gate restamps against the move's notification echoes
+        // Floating windows can't be CGS-moved; drop to .normal for the move and
+        // restore after (same as launch placement).
+        let wasFloating = controller.note.isFloating
+        if wasFloating { controller.window?.level = .normal }
         tracker.moveWindow(windowNumber, to: target)
         verifyMove(of: controller, to: target, attemptsLeft: 2) { [weak self] success in
             guard let self else { return }
             self.placementInFlight = false
+            if wasFloating { controller.window?.level = .floating }
             if success {
-                self.restamp(controller)
+                // Stamp directly from the known target: this is an explicit CGS
+                // move (works even for floating notes, which restamp() skips).
+                controller.updateStamp(target)
             } else {
                 NSLog("SpaceNote: bring-here of note \(controller.note.id) FAILED")
                 self.tracker.reportWriteFailure()
