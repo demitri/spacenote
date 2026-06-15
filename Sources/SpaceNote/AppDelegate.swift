@@ -59,9 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let controller else { return }
             self.toggleDesktopLabel(controller)
         }
-        controller.onDesktopChangedWhileLabel = { [weak self, weak controller] in
-            guard let self, let controller else { return }
-            self.enforceUniqueLabel(for: controller)
+        controller.onDesktopChangedWhileLabel = { [weak self] in
+            // Deferred + coalesced: a restampAll batch updates peers' stamps
+            // sequentially, so enforcing mid-batch would compare against stale
+            // keys and could drop a label when two swap desktops. Normalize once,
+            // next runloop turn, against the FINAL keys (codex round 2).
+            self?.scheduleLabelNormalize()
         }
         controllers.append(controller)
         return controller
@@ -88,8 +91,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// One-shot cleanup of pre-existing duplicate labels (e.g. older data): per
-    /// desktop keep the first label note, clear the rest. Runs at launch.
+    private var labelNormalizeScheduled = false
+
+    /// Coalesce stamp-change-driven normalization to one pass on the next runloop
+    /// turn, after the whole restamp batch has settled (codex round 2).
+    private func scheduleLabelNormalize() {
+        guard !labelNormalizeScheduled else { return }
+        labelNormalizeScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            self?.labelNormalizeScheduled = false
+            self?.normalizeDesktopLabels()
+        }
+    }
+
+    /// Enforce one label per desktop against current (settled) stamps: per
+    /// desktop keep the first label note, clear the rest. Runs at launch and
+    /// after any batch of stamp changes. Deliberate toggle-on uses
+    /// `enforceUniqueLabel` instead (the chosen note wins).
     private func normalizeDesktopLabels() {
         var seen = Set<String>()
         for controller in controllers where controller.note.isDesktopLabel {
