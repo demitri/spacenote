@@ -11,6 +11,9 @@ final class NoteWindowController: NSWindowController {
     /// Asks the app to toggle this note's desktop-label flag and enforce the
     /// one-label-per-desktop rule across sibling notes (PLAN.md §10).
     var onToggleDesktopLabel: (() -> Void)?
+    /// Fired when this note's desktop stamp changes while it IS a label, so the
+    /// app can re-enforce one-label-per-desktop on the new desktop.
+    var onDesktopChangedWhileLabel: (() -> Void)?
 
     private(set) var isCollapsed = false
     private var expandedHeight: CGFloat
@@ -177,6 +180,7 @@ final class NoteWindowController: NSWindowController {
         note.displayIdentifier = info.displayIdentifier
         note.desktopOrdinal = info.ordinal
         store.update(note)
+        if note.isDesktopLabel { onDesktopChangedWhileLabel?() }
     }
 
     // MARK: - Focus
@@ -211,6 +215,9 @@ final class NoteWindowController: NSWindowController {
         menu.addItem(.separator())
         menu.addItem(makeItem("Collapse", #selector(toggleCollapseItem(_:))))
         menu.delegate = self
+        // We drive enable/disable ourselves in menuNeedsUpdate (the label item is
+        // gated on having a resolved desktop); AppKit auto-enabling would override.
+        menu.autoenablesItems = false
         return menu
     }
 
@@ -335,7 +342,14 @@ extension NoteWindowController: NSMenuDelegate {
             case #selector(toggleTranslucent(_:)): item.state = note.isTranslucent ? .on : .off
             case #selector(toggleFloat(_:)): item.state = note.isFloating ? .on : .off
             case #selector(toggleToolbarItem(_:)): item.title = note.showsToolbar ? "Hide Toolbar" : "Show Toolbar"
-            case #selector(toggleDesktopLabelItem(_:)): item.state = note.isDesktopLabel ? .on : .off
+            case #selector(toggleDesktopLabelItem(_:)):
+                item.state = note.isDesktopLabel ? .on : .off
+                // A label is meaningless without a resolved desktop; allow toggling
+                // OFF an existing label regardless (codex review).
+                let hasDesktop = note.desktopOrdinal != nil
+                item.isEnabled = hasDesktop || note.isDesktopLabel
+                item.toolTip = item.isEnabled ? nil
+                    : "Available once this note has settled on a desktop"
             case #selector(toggleCollapseItem(_:)): item.title = isCollapsed ? "Expand" : "Collapse"
             case #selector(pickColor(_:)):
                 // Checkmark only when the fill IS this preset; a custom fill checks none.

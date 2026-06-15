@@ -19,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             for (note, text) in loaded {
                 addController(note: note, text: text)
             }
+            normalizeDesktopLabels()   // clear any pre-existing duplicate labels
             // No NSApp.activate, no makeKey: placement must happen on non-key
             // windows or it drags the user's desktop along (Phase 0 fact).
             spaceManager.performLaunchPlacement()
@@ -58,22 +59,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, let controller else { return }
             self.toggleDesktopLabel(controller)
         }
+        controller.onDesktopChangedWhileLabel = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.enforceUniqueLabel(for: controller)
+        }
         controllers.append(controller)
         return controller
     }
 
-    /// Toggle the note's desktop-label flag, enforcing one label per desktop:
-    /// turning a note ON clears the flag on any other note sharing its desktop.
+    /// Toggle the note's desktop-label flag, enforcing one label per desktop.
     private func toggleDesktopLabel(_ controller: NoteWindowController) {
         let turnOn = !controller.note.isDesktopLabel
-        if turnOn {
+        controller.applyDesktopLabel(turnOn)
+        if turnOn { enforceUniqueLabel(for: controller) }
+    }
+
+    /// Clear the desktop-label flag on every OTHER note sharing this controller's
+    /// desktop — the given controller wins. Called on explicit toggle-on AND
+    /// whenever a label note's desktop changes (moved via Mission Control, or
+    /// stamped after being labeled while unstamped), so uniqueness can't silently
+    /// break after the fact (codex review).
+    private func enforceUniqueLabel(for controller: NoteWindowController) {
+        guard controller.note.isDesktopLabel else { return }
+        let key = desktopKey(controller.note)
+        for other in controllers where other !== controller
+            && other.note.isDesktopLabel && desktopKey(other.note) == key {
+            other.applyDesktopLabel(false)
+        }
+    }
+
+    /// One-shot cleanup of pre-existing duplicate labels (e.g. older data): per
+    /// desktop keep the first label note, clear the rest. Runs at launch.
+    private func normalizeDesktopLabels() {
+        var seen = Set<String>()
+        for controller in controllers where controller.note.isDesktopLabel {
             let key = desktopKey(controller.note)
-            for other in controllers where other !== controller
-                && other.note.isDesktopLabel && desktopKey(other.note) == key {
-                other.applyDesktopLabel(false)
+            if seen.contains(key) {
+                NSLog("SpaceNote: duplicate desktop label on \(key) — clearing extra \(controller.noteID)")
+                controller.applyDesktopLabel(false)
+            } else {
+                seen.insert(key)
             }
         }
-        controller.applyDesktopLabel(turnOn)
     }
 
     /// Identity of a note's desktop, for the one-label-per-desktop rule. Prefers

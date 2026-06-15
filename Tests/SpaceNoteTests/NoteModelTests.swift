@@ -64,6 +64,7 @@ final class NoteModelTests: XCTestCase {
         XCTAssertEqual(note.color, .preset(.yellow))
         XCTAssertEqual(note.translucentOpacity, 0.8, accuracy: 1e-9)   // decode default
         XCTAssertFalse(note.showsToolbar)                              // decode default
+        XCTAssertFalse(note.isDesktopLabel)                           // v3 field, decode default
         XCTAssertTrue(note.isTranslucent)
     }
 
@@ -73,11 +74,13 @@ final class NoteModelTests: XCTestCase {
         note.showsToolbar = true
         note.isTranslucent = true
         note.translucentOpacity = 0.55
+        note.isDesktopLabel = true
         let decoded = try JSONDecoder().decode(Note.self, from: try encode(note))
         XCTAssertEqual(decoded.color, .custom(rgb: 0xABCDEF))
         XCTAssertTrue(decoded.showsToolbar)
         XCTAssertTrue(decoded.isTranslucent)
         XCTAssertEqual(decoded.translucentOpacity, 0.55, accuracy: 1e-9)
+        XCTAssertTrue(decoded.isDesktopLabel)
     }
 
     // MARK: effectiveAlpha + slider boundary
@@ -121,12 +124,12 @@ final class NoteModelTests: XCTestCase {
 
     // MARK: Manifest
 
-    func testManifestRoundTripV2() throws {
+    func testManifestRoundTripV3() throws {
         let note = Note(color: .custom(rgb: 0x102030),
                         frame: CGRect(x: 0, y: 0, width: 100, height: 100))
         let manifest = Manifest(version: Manifest.currentVersion, notes: [note])
         let decoded = try JSONDecoder().decode(Manifest.self, from: try encode(manifest))
-        XCTAssertEqual(decoded.version, 2)
+        XCTAssertEqual(decoded.version, 3)
         XCTAssertEqual(decoded.notes.count, 1)
         XCTAssertEqual(decoded.notes[0].color, .custom(rgb: 0x102030))
     }
