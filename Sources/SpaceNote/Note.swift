@@ -18,6 +18,9 @@ struct Note: Identifiable, Codable {
     var isFloating: Bool
     /// Per-note format toolbar visibility (PLAN.md §9). New notes start bare.
     var showsToolbar: Bool
+    /// Designates this note as its desktop's nameplate (PLAN.md §10). At most
+    /// one per desktop; powers the status-menu "Go to Desktop" switcher.
+    var isDesktopLabel: Bool
     /// Space resolution tuple (PLAN.md §1): uuid, display, ordinal-on-display.
     /// nil = unstamped → shown on current space and stamped there.
     var spaceUUID: String?
@@ -34,6 +37,7 @@ struct Note: Identifiable, Codable {
         self.translucentOpacity = 0.8
         self.isFloating = false
         self.showsToolbar = false
+        self.isDesktopLabel = false
     }
 
     /// Effective body alpha for rendering. Pure + testable; `applyAppearance()`
@@ -63,7 +67,7 @@ struct Note: Identifiable, Codable {
 
     enum CodingKeys: String, CodingKey {
         case id, rtfFilename, color, frame, isCollapsed, isTranslucent
-        case translucentOpacity, isFloating, showsToolbar
+        case translucentOpacity, isFloating, showsToolbar, isDesktopLabel
         case spaceUUID, displayIdentifier, desktopOrdinal
     }
 
@@ -78,6 +82,7 @@ struct Note: Identifiable, Codable {
         translucentOpacity = try c.decodeIfPresent(Double.self, forKey: .translucentOpacity) ?? 0.8
         isFloating = try c.decodeIfPresent(Bool.self, forKey: .isFloating) ?? false
         showsToolbar = try c.decodeIfPresent(Bool.self, forKey: .showsToolbar) ?? false
+        isDesktopLabel = try c.decodeIfPresent(Bool.self, forKey: .isDesktopLabel) ?? false
         spaceUUID = try c.decodeIfPresent(String.self, forKey: .spaceUUID)
         displayIdentifier = try c.decodeIfPresent(String.self, forKey: .displayIdentifier)
         desktopOrdinal = try c.decodeIfPresent(Int.self, forKey: .desktopOrdinal)
@@ -88,5 +93,5 @@ struct Manifest: Codable {
     var version: Int
     var notes: [Note]
 
-    static let currentVersion = 2
+    static let currentVersion = 3
 }

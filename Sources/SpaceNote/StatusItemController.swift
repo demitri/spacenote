@@ -31,8 +31,29 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         // foreign note must never silently relocate it (PLAN.md §4).
         let manager = appDelegate.spaceManager
         manager.refreshSnapshot()
-        let (local, foreign) = appDelegate.controllers.reduce(into: ([NoteWindowController](), [NoteWindowController]())) {
-            if manager.isOnVisibleSpace($1) { $0.0.append($1) } else { $0.1.append($1) }
+        // Label notes live in the "Go to Desktop" section below, not the regular
+        // focus/bring-here lists — otherwise a label shows twice.
+        let (local, foreign) = appDelegate.controllers
+            .filter { !$0.note.isDesktopLabel }
+            .reduce(into: ([NoteWindowController](), [NoteWindowController]())) {
+                if manager.isOnVisibleSpace($1) { $0.0.append($1) } else { $0.1.append($1) }
+            }
+
+        // Desktop-label switcher (PLAN.md §10): jump to a named desktop by
+        // focusing its label note (macOS follows the key window to its Space).
+        let labels = appDelegate.controllers
+            .filter { $0.note.isDesktopLabel }
+            .sorted { ($0.note.desktopOrdinal ?? .max) < ($1.note.desktopOrdinal ?? .max) }
+        if !labels.isEmpty {
+            menu.addItem(.separator())
+            let header = NSMenuItem(title: "Go to Desktop", action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            for controller in labels {
+                let item = noteItem(controller, action: #selector(AppDelegate.goToDesktop(_:)))
+                if let ord = controller.note.desktopOrdinal { item.title += "  —  Desktop \(ord)" }
+                menu.addItem(item)
+            }
         }
 
         if !local.isEmpty {

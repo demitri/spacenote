@@ -54,8 +54,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onDeleted = { [weak self] id in
             self?.controllers.removeAll { $0.noteID == id }
         }
+        controller.onToggleDesktopLabel = { [weak self, weak controller] in
+            guard let self, let controller else { return }
+            self.toggleDesktopLabel(controller)
+        }
         controllers.append(controller)
         return controller
+    }
+
+    /// Toggle the note's desktop-label flag, enforcing one label per desktop:
+    /// turning a note ON clears the flag on any other note sharing its desktop.
+    private func toggleDesktopLabel(_ controller: NoteWindowController) {
+        let turnOn = !controller.note.isDesktopLabel
+        if turnOn {
+            let key = desktopKey(controller.note)
+            for other in controllers where other !== controller
+                && other.note.isDesktopLabel && desktopKey(other.note) == key {
+                other.applyDesktopLabel(false)
+            }
+        }
+        controller.applyDesktopLabel(turnOn)
+    }
+
+    /// Identity of a note's desktop, for the one-label-per-desktop rule. Prefers
+    /// the stable uuid; falls back to (display, ordinal) when uuid is empty (the
+    /// primary desktop reports an empty uuid). nil-stamped notes group together.
+    private func desktopKey(_ note: Note) -> String {
+        if let uuid = note.spaceUUID, !uuid.isEmpty { return "uuid:\(uuid)" }
+        return "disp:\(note.displayIdentifier ?? "?"):ord:\(note.desktopOrdinal ?? -1)"
+    }
+
+    /// Jump to a labeled desktop by focusing its label note — macOS follows the
+    /// key window to its Space (verified independent of the Mission Control
+    /// "switch to a Space with open windows" setting). Switches silently.
+    @objc func goToDesktop(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? UUID,
+              let controller = controllers.first(where: { $0.noteID == id }) else { return }
+        controller.focus()
     }
 
     @objc func newNote(_ sender: Any?) {

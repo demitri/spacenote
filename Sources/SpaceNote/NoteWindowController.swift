@@ -8,6 +8,9 @@ final class NoteWindowController: NSWindowController {
     private(set) var note: Note
     /// Called after the note is deleted and its window closed (manager removes us).
     var onDeleted: ((UUID) -> Void)?
+    /// Asks the app to toggle this note's desktop-label flag and enforce the
+    /// one-label-per-desktop rule across sibling notes (PLAN.md §10).
+    var onToggleDesktopLabel: (() -> Void)?
 
     private(set) var isCollapsed = false
     private var expandedHeight: CGFloat
@@ -63,6 +66,7 @@ final class NoteWindowController: NSWindowController {
 
         applyAppearance()
         root.showsToolbar = note.showsToolbar
+        root.strip.isDesktopLabel = note.isDesktopLabel
         window.level = note.isFloating ? .floating : .normal
         if note.isCollapsed { setCollapsed(true) }
     }
@@ -203,6 +207,8 @@ final class NoteWindowController: NSWindowController {
         menu.addItem(makeItem("Translucent", #selector(toggleTranslucent(_:))))
         menu.addItem(makeItem("Float on Top", #selector(toggleFloat(_:))))
         menu.addItem(.separator())
+        menu.addItem(makeItem("Use as Desktop Label", #selector(toggleDesktopLabelItem(_:))))
+        menu.addItem(.separator())
         menu.addItem(makeItem("Collapse", #selector(toggleCollapseItem(_:))))
         menu.delegate = self
         return menu
@@ -263,6 +269,17 @@ final class NoteWindowController: NSWindowController {
     }
 
     @objc private func toggleCollapseItem(_ sender: NSMenuItem) { toggleCollapse() }
+
+    @objc private func toggleDesktopLabelItem(_ sender: NSMenuItem) { onToggleDesktopLabel?() }
+
+    /// Set/clear the desktop-label flag and its strip glyph (the one-per-desktop
+    /// rule is enforced by the app, the sole caller).
+    func applyDesktopLabel(_ on: Bool) {
+        guard note.isDesktopLabel != on else { return }
+        note.isDesktopLabel = on
+        root.strip.isDesktopLabel = on
+        store.update(note)
+    }
 }
 
 // MARK: - Window/text delegates
@@ -318,6 +335,7 @@ extension NoteWindowController: NSMenuDelegate {
             case #selector(toggleTranslucent(_:)): item.state = note.isTranslucent ? .on : .off
             case #selector(toggleFloat(_:)): item.state = note.isFloating ? .on : .off
             case #selector(toggleToolbarItem(_:)): item.title = note.showsToolbar ? "Hide Toolbar" : "Show Toolbar"
+            case #selector(toggleDesktopLabelItem(_:)): item.state = note.isDesktopLabel ? .on : .off
             case #selector(toggleCollapseItem(_:)): item.title = isCollapsed ? "Expand" : "Collapse"
             case #selector(pickColor(_:)):
                 // Checkmark only when the fill IS this preset; a custom fill checks none.

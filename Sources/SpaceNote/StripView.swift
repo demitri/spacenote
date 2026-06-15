@@ -9,6 +9,9 @@ final class StripView: NSView {
     var alpha: CGFloat = 1.0 { didSet { needsDisplay = true } }
     /// Contrast-aware glyph ink (PLAN.md §9): black on light fills, light on dark.
     var ink: NSColor = NSColor.black.withAlphaComponent(0.45) { didSet { needsDisplay = true } }
+    /// Desktop-label nameplate marker — drawn always (not just on hover) so the
+    /// desktop's label note is identifiable at a glance (PLAN.md §10).
+    var isDesktopLabel: Bool = false { didSet { needsDisplay = true } }
     var onClose: (() -> Void)?
     var onToggleCollapse: (() -> Void)?
     var onToggleToolbar: (() -> Void)?
@@ -57,6 +60,17 @@ final class StripView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         color.withAlphaComponent(alpha).setFill()
         bounds.fill()
+
+        // Desktop-label marker: a small filled "pin" dot at the strip's center,
+        // always visible. Sits between the close (left) and collapse/Aa (right)
+        // hover widgets, so it never collides with them.
+        if isDesktopLabel {
+            let r: CGFloat = 3
+            let dot = NSRect(x: bounds.midX - r, y: bounds.midY - r, width: r * 2, height: r * 2)
+            ink.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+        }
+
         guard hovered else { return }
 
         ink.setStroke()

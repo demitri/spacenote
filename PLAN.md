@@ -480,3 +480,43 @@ edge-resize band, so hovering them shows the diagonal resize cursor and they fee
 non-clickable. Fix: a `.cursorUpdate` tracking area on the strip asserting
 `NSCursor.arrow`; verify empirically that it wins over the window-edge resize zones
 (see §8.6) and document the residual band if it doesn't fully.
+
+## 10. Desktop labels (Phase 6)
+
+The app's original purpose: macOS desktops (Spaces) can't be named, so a sticky
+note per desktop acted as a proxy nameplate. The **Desktop Label** feature makes
+that explicit and adds the payoff — jump to a desktop by name.
+
+- **Model:** `Note.isDesktopLabel: Bool` (manifest **v3**; decodes default
+  `false` so v1/v2 manifests load unchanged).
+- **One label per desktop:** toggling a note ON clears the flag on any other note
+  sharing its desktop. "Same desktop" is keyed off the stamp — `uuid:<spaceUUID>`
+  when non-empty, else `disp:<displayIdentifier>:ord:<desktopOrdinal>` (the
+  primary desktop reports an empty uuid). Enforced in `AppDelegate`, the only
+  place that sees all controllers; the controller just exposes
+  `applyDesktopLabel(_:)`.
+- **Marker:** an always-visible filled dot at the strip's horizontal center
+  (clear of the hover close/collapse/Aa widgets), in the contrast-aware ink.
+- **Switcher:** the status menu's "Go to Desktop" section lists label notes by
+  ascending `desktopOrdinal` as "<first line> — Desktop N". Label notes appear
+  ONLY here, not in the focus/bring-here lists (else they'd show twice).
+
+### The jump mechanism (the one real unknown, spiked)
+
+macOS has no public Space-switch API. Two private paths were spiked:
+
+- **`CGSManagedDisplaySetCurrentSpace` — REJECTED.** It flips the WindowServer's
+  current-space pointer *without* running the Mission Control transition, leaving
+  the compositor, menu bar, and Mission Control disagreeing about the active
+  desktop (observed: the source window followed, menu bar stayed, MC highlighted
+  the wrong desktop; only a manual swipe recovered). Too unsafe to ship.
+- **Focus-switch — ADOPTED.** Focusing the label note's window
+  (`makeKeyAndOrderFront` + `NSApp.activate`) makes macOS animate to that window's
+  Space via the *real* transition. `goToDesktop` just calls `controller.focus()`.
+
+  **Key verified fact (spike `focusswitch`, 2026-06-15, macOS 26.5.1):**
+  focus-switch works even with Mission Control's "When switching to an
+  application, switch to a Space with open windows for the application"
+  **OFF** — i.e. it is INDEPENDENT of that setting. (The window-pulled-to-current
+  behavior we engineer around in bring-here is our explicit CGS move, not a focus
+  side effect.) So the jump needs no system-setting opt-in.
