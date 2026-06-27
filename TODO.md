@@ -1,15 +1,20 @@
 # TODO
 
 - [ ] **Verify space-uuid stability across reboot** (PLAN.md §7 fact (b) — the
-  last unverified Phase 0 assumption). After the next reboot:
+  last unverified Phase-0 assumption). Baseline captured pre-reboot 2026-06-27 in
+  `reboot-uuid-baseline.txt` (8 non-empty user-space uuids).
+
+  **After your next reboot, run once from the repo root:**
 
   ```sh
-  cd $GH/spacenote && .build/debug/SpikeSpaces --dump
+  ./check-reboot-uuids.sh
   ```
 
-  and diff the per-space `uuid`s/ordinals against the baseline session in
-  `spike-spaces.log` (the dumps from boot `2026-06-06T06:33:39Z`). If uuids
-  are stable: done, delete this item. If they churn: the app already falls
-  back to `(display, ordinal)` resolution, but confirm notes actually land on
-  the right desktops after that reboot and consider promoting ordinals to the
-  primary key.
+  - ✅ prints "STABLE" → uuids survive reboot; `spaceUUID` is a reboot-safe key,
+    nothing to change.
+  - ⚠️ prints "CHANGED" → uuids churn across reboot; the `(display, ordinal)`
+    fallback in `SpacesSnapshot.resolve` carries placement, but consider promoting
+    the ordinal to the primary key. Paste the diff into a new session.
+
+  (Within-session evidence so far: uuids are stable across weeks of desktop
+  reordering — only ordinals shift. The reboot is the one case still untested.)
