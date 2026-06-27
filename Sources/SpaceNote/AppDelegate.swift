@@ -138,6 +138,79 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.focus()
     }
 
+    // MARK: - Shared menu content
+
+    /// Builds the navigation portion of a menu — New Note, the "Go to Desktop"
+    /// label switcher, and the focus/bring-here note lists — shared by the
+    /// status-bar menu and the Dock menu (right-click the Dock icon).
+    func populateNavigationMenu(_ menu: NSMenu) {
+        let newNote = NSMenuItem(title: "New Note", action: #selector(newNote(_:)), keyEquivalent: "")
+        newNote.target = self
+        menu.addItem(newNote)
+
+        spaceManager.refreshSnapshot()
+        // Label notes go in the "Go to Desktop" section, not the focus/bring-here
+        // lists, so a label never shows twice.
+        let (local, foreign) = controllers
+            .filter { !$0.note.isDesktopLabel }
+            .reduce(into: ([NoteWindowController](), [NoteWindowController]())) {
+                if spaceManager.isOnVisibleSpace($1) { $0.0.append($1) } else { $0.1.append($1) }
+            }
+        let labels = controllers
+            .filter { $0.note.isDesktopLabel }
+            .sorted { ($0.note.desktopOrdinal ?? .max) < ($1.note.desktopOrdinal ?? .max) }
+
+        if !labels.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(disabledHeader("Go to Desktop"))
+            for controller in labels {
+                let item = noteMenuItem(controller, action: #selector(goToDesktop(_:)))
+                if let ord = controller.note.desktopOrdinal { item.title += "  —  Desktop \(ord)" }
+                menu.addItem(item)
+            }
+        }
+        if !local.isEmpty {
+            menu.addItem(.separator())
+            for controller in local {
+                menu.addItem(noteMenuItem(controller, action: #selector(focusNote(_:))))
+            }
+        }
+        if !foreign.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(disabledHeader("Bring to this desktop:"))
+            for controller in foreign {
+                let item = noteMenuItem(controller, action: #selector(bringNote(_:)))
+                if let ord = spaceManager.desktopOrdinal(of: controller) {
+                    item.title += "  —  Desktop \(ord)"
+                }
+                item.toolTip = "Moves this note to the current desktop"
+                menu.addItem(item)
+            }
+        }
+    }
+
+    private func disabledHeader(_ title: String) -> NSMenuItem {
+        let header = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        return header
+    }
+
+    private func noteMenuItem(_ controller: NoteWindowController, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: controller.menuTitle, action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = controller.noteID
+        item.image = NoteWindowController.swatch(controller.note.color.body)
+        return item
+    }
+
+    /// Dock-icon menu (right-click / control-click / click-and-hold). macOS
+    /// appends its own Options/Quit items below ours.
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        let menu = NSMenu()
+        populateNavigationMenu(menu)
+        return menu
+    }
+
     @objc func newNote(_ sender: Any?) {
         let note = store.create(frame: nextNoteFrame(), color: .preset(.yellow))
         let controller = addController(note: note, text: nil)
@@ -155,6 +228,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let id = sender.representedObject as? UUID,
               let controller = controllers.first(where: { $0.noteID == id }) else { return }
         spaceManager.bringToCurrentSpace(controller)
+    }
+
+    /// Toggle the Dock icon + menu bar on/off, live and persisted. macOS lets
+    /// `setActivationPolicy` change at runtime; activating on the regular switch
+    /// brings the app (and its menu bar) forward so the change is visible.
+    @objc func toggleDockVisibility(_ sender: Any?) {
+        AppSettings.showInDock.toggle()
+        NSApp.setActivationPolicy(AppSettings.showInDock ? .regular : .accessory)
+        if AppSettings.showInDock { NSApp.activate(ignoringOtherApps: true) }
     }
 
     /// Login item toggle (PLAN.md §4). Only offered when running as a bundle;

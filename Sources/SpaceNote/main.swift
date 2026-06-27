@@ -1,10 +1,11 @@
 import AppKit
 
 let app = NSApplication.shared
-// Menu-bar-only app (matches LSUIElement in the bundled Info.plist; explicit
-// so unbundled `swift run` behaves identically). Key equivalents from
-// NSApp.mainMenu work without a visible menu bar.
-app.setActivationPolicy(.accessory)
+// Activation policy follows the user's "Show in Dock" setting (default
+// accessory = menu-bar-only, matching Info.plist LSUIElement). Set here, before
+// the delegate, so there's no launch flicker. Key equivalents from
+// NSApp.mainMenu work in either mode.
+app.setActivationPolicy(AppSettings.showInDock ? .regular : .accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
