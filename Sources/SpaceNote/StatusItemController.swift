@@ -1,5 +1,4 @@
 import AppKit
-import ServiceManagement
 
 /// Menu-bar presence: New Note, the note list, Quit. The menu is rebuilt on
 /// each open via NSMenuDelegate so titles/swatches stay current.
@@ -33,24 +32,6 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         dock.state = AppSettings.showInDock ? .on : .off
         menu.addItem(dock)
 
-        // SMAppService needs a real bundle with stable identity (PLAN.md §4);
-        // hidden when running as a bare SwiftPM binary.
-        if Bundle.main.bundleURL.pathExtension == "app" {
-            let login = NSMenuItem(title: "Start at Login",
-                                   action: #selector(AppDelegate.toggleLoginItem(_:)),
-                                   keyEquivalent: "")
-            login.target = appDelegate
-            switch SMAppService.mainApp.status {
-            case .enabled:
-                login.state = .on
-            case .requiresApproval:
-                login.title = "Start at Login (approve in System Settings)"
-                login.state = .mixed
-            default:
-                login.state = .off
-            }
-            menu.addItem(login)
-        }
         let quit = NSMenuItem(title: "Quit SpaceNote",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)

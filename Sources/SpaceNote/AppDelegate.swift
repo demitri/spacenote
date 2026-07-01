@@ -1,5 +1,4 @@
 import AppKit
-import ServiceManagement
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let store = NoteStore()
@@ -237,28 +236,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppSettings.showInDock.toggle()
         NSApp.setActivationPolicy(AppSettings.showInDock ? .regular : .accessory)
         if AppSettings.showInDock { NSApp.activate(ignoringOtherApps: true) }
-    }
-
-    /// Login item toggle (PLAN.md §4). Only offered when running as a bundle;
-    /// errors and the requires-approval state surface in the UI, never
-    /// pretended away.
-    @objc func toggleLoginItem(_ sender: NSMenuItem) {
-        let service = SMAppService.mainApp
-        do {
-            if service.status == .enabled {
-                try service.unregister()
-            } else {
-                try service.register()
-                if service.status == .requiresApproval {
-                    SMAppService.openSystemSettingsLoginItems()
-                }
-            }
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "Could not update login item"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
-        }
     }
 
     @objc private func closeKeyNote(_ sender: Any?) {
