@@ -5,8 +5,14 @@ import AppKit
 // app-wide so our menus stay text-only; images we set explicitly (note-color
 // swatches, toolbar SF Symbols) are unaffected — this key governs only the
 // automatic action images. Registered (not persisted) before any menu is built.
-// The sanctioned per-item API (NSMenuItem.preferredImageVisibility) is a
-// later-SDK addition and absent from the 26.5 SDK we build against.
+// The sanctioned per-item API (NSMenuItem.preferredImageVisibility) is absent
+// from the 26.5 SDK we build against — confirmed by grepping the SDK header:
+//   grep preferredImageVisibility "$(xcrun --show-sdk-path)"/System/Library/\
+//     Frameworks/AppKit.framework/Headers/NSMenuItem.h
+// The exact SDK that introduces it is unverified (docs point at 27.0 for a
+// related NSMenu default change, but that's not the same thing). When the grep
+// above starts matching after an Xcode update, check its API_AVAILABLE line and
+// consider switching to per-item control instead of this app-wide default.
 UserDefaults.standard.register(defaults: ["NSMenuEnableActionImages": false])
 
 let app = NSApplication.shared
